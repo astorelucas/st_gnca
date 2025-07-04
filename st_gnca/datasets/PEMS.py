@@ -5,7 +5,7 @@ import networkx as nx
 
 import torch
 
-from st_gnca.embeddings.temporal import TemporalEmbedding, to_pandas_datetime
+from st_gnca.embeddings.temporal import TemporalEmbedding, SinusoidalTemporalEncoding, to_pandas_datetime
 from st_gnca.embeddings.spatial import SpatialEmbedding
 from st_gnca.embeddings.value import ValueEmbedding
 from st_gnca.tokenizer.tokenizer import NeighborhoodTokenizer
@@ -79,14 +79,14 @@ class PEMSBase:
       self.max_length = max([d for n, d in self.G.degree()]) + 1
 
       # precompute and store all time embeddings to save processing
-      self.time_embeddings = TemporalEmbedding(self.data['timestamp'], dtype=self.dtype, device=self.device)
+      self.time_embeddings = SinusoidalTemporalEncoding(self.data['timestamp'], dtype=self.dtype, device=self.device)
 
       self.num_sensors = self.G.number_of_nodes()
 
       #self.sensors = sorted([k for k in self.G.nodes()])
 
       self.num_samples = len(self.data) - self.steps_ahead
-      self.token_dim = 7
+      self.token_dim = 9
 
       self.value_index = 4
 
@@ -198,9 +198,9 @@ class PEMSBase:
 class PEMS03(PEMSBase):
     def __init__(self,**kwargs):
       super(PEMS03, self).__init__(latlon = True, 
-                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS03/edges.csv"),
-                                   nodes_file = kwargs.pop('nodes_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS03/nodes.csv"),
-                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS03/data.csv"),
+                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/lucasastore/st_gnca/refs/heads/main/st_gnca/data/PEMS03/edges.csv"),
+                                   nodes_file = kwargs.pop('nodes_file', "https://raw.githubusercontent.com/lucasastore/st_gnca/refs/heads/main/st_gnca/data/PEMS03/nodes.csv"),
+                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/lucasastore/st_gnca/refs/heads/main/st_gnca/data/PEMS03/data.csv"),
                                    **kwargs)
 
 class PEMS04(PEMSBase):

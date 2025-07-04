@@ -1,12 +1,14 @@
+
 import torch
 from torch import nn
 from st_gnca.datasets.PEMS import PEMS03
-from st_gnca.cellmodel import CellModel
+from st_gnca.cellmodel.cell_model import CellModel
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 print("Setting up model configuration...")
 # Setup device and data types
@@ -14,7 +16,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.float32
 
 # Define paths
-DEFAULT_PATH = 'st_nca/'
+DEFAULT_PATH = 'st_gnca/'
 DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 # Initialize PEMS03 dataset
@@ -59,9 +61,9 @@ gca = GraphCellularAutomata(
 )
 
 print("Setting up training configuration...")
-BATCH_SIZE = 32
+BATCH_SIZE = 4096
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 100
+NUM_EPOCHS = 1
 TRAIN_SPLIT = 0.6
 VALIDATION_SPLIT = 0.2
 # Test split will be the remaining 0.1
@@ -97,6 +99,7 @@ def train_epoch(model, train_loader, optimizer, criterion):
     for _ , (X, y) in enumerate(tqdm(train_loader, desc="Training")):
         optimizer.zero_grad()
         output = model(X)
+        y = y.view(output.shape) 
         loss = criterion(output, y)
         loss.backward()
         optimizer.step()
@@ -143,25 +146,68 @@ for epoch in range(NUM_EPOCHS):
         }
         torch.save(checkpoint, f'checkpoint_epoch_{epoch+1}.pt')
 
+
+def compute_mae(pred, target):
+    return torch.mean(torch.abs(pred - target)).item()
+
+def compute_rmse(pred, target):
+    return torch.sqrt(torch.mean((pred - target) ** 2)).item()
+
 print("Training completed!")
 
-# Final evaluation on test set
+
+# Final evaluation on test set with MAE and RMSE
 gca.eval()
 test_loss = 0
+mae_total = 0
+rmse_total = 0
 with torch.no_grad():
     for X, y in tqdm(test_loader, desc="Testing"):
         output = gca(X)
+        y = y.view(output.shape)
         loss = criterion(output, y)
         test_loss += loss.item()
-test_loss = test_loss / len(test_loader)
-print(f"Final Test Loss: {test_loss:.6f}")
+        mae_total += compute_mae(output, y)
+        rmse_total += compute_rmse(output, y)
+num_batches = len(test_loader)
+test_loss = test_loss / num_batches
+test_mae = mae_total / num_batches
+test_rmse = rmse_total / num_batches
+print(f"Final Test Loss (MSE): {test_loss:.6f}")
+print(f"Final Test MAE: {test_mae:.6f}")
 
-# Save the final model
+print(f"Final Test RMSE: {test_rmse:.6f}")
+
+# --- Plot predictions vs real values for a small period ---
+# Get a small batch from the test set
+gca.eval()
+with torch.no_grad():
+    X_batch, y_batch = next(iter(test_loader))
+    output_batch = gca(X_batch)
+
+# Select the first 100 samples (or less if batch is smaller)
+n_samples = min(100, y_batch.shape[0])
+real = y_batch[:n_samples].cpu().numpy().flatten()
+pred = output_batch[:n_samples].cpu().numpy().flatten()
+
+plt.figure(figsize=(12, 5))
+plt.plot(real, label='Real', marker='o')
+plt.plot(pred, label='Predicted', marker='x')
+plt.title('Predicted vs Real Values (First 100 samples of test batch)')
+plt.xlabel('Sample')
+plt.ylabel('Value')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# Save the final model and metrics
 torch.save({
     'model_state_dict': gca.state_dict(),
     'optimizer_state_dict': optimizer.state_dict(),
     'train_losses': train_losses,
     'val_losses': val_losses,
     'test_loss': test_loss,
+    'test_mae': test_mae,
+    'test_rmse': test_rmse,
     'config': config
 }, 'final_model.pt')

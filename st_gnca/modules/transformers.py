@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from st_nca.common import normalizations
+from st_gnca.common import normalizations
 
 #My own implementation, already tested
 #Original source:  https://github.com/petroniocandido/clshq_tk/blob/main/clshq_tk/modules/attention.py

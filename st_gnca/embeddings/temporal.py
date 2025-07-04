@@ -106,6 +106,7 @@ class SinusoidalTemporalEncoding(nn.Module):
         for date in dates:
             tmp_dict[datetime_to_str(date)] = self.forward(date)
             self.length += 1 
+            # print(tmp_dict[datetime_to_str(date)].shape)
         self.embeddings : TensorDict = TensorDict(tmp_dict) 
 
     def forward(self, dt, d_model=4):
@@ -130,8 +131,18 @@ class SinusoidalTemporalEncoding(nn.Module):
         sin_part = torch.sin(angle_rads)
         cos_part = torch.cos(angle_rads)
         
-        return torch.stack([sin_part, cos_part]).squeeze()
+        return torch.cat([sin_part, cos_part], dim=-1).view(-1)
 
+    def __getitem__(self, date):
+        if isinstance(date, np.datetime64):
+            date =  from_np_to_datetime(date)
+            return self.embeddings[datetime_to_str(date)]
+        elif isinstance(date, datetime):
+            return self.embeddings[datetime_to_str(date)]
+        elif isinstance(date, int):
+            return self.embeddings[date]
+        else:
+            raise Exception("Unknown index type")
     
     def all(self):
         ret = torch.empty(self.length, 4, dtype=self.dtype, device=self.device)

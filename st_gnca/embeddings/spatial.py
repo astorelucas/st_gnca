@@ -5,7 +5,6 @@ import torch
 from torch import nn
 from tensordict import TensorDict
 
-
 class SpatialEmbedding(nn.Module):
   def __init__(self, graph, laplacian_components = 2, **kwargs):
     super().__init__()
