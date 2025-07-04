@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import numpy as np
 
 class ValueEmbedding(nn.Module):
     def __init__(self, data, method="ztransform", **kwargs):
