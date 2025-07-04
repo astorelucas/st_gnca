@@ -110,6 +110,7 @@ def validate(model, val_loader, criterion):
     with torch.no_grad():
         for X, y in tqdm(val_loader, desc="Validation"):
             output = model(X)
+            y = y.view(output.shape) 
             loss = criterion(output, y)
             total_loss += loss.item()
     return total_loss / len(val_loader)

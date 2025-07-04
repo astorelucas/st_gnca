@@ -25,7 +25,7 @@ class SpatialEmbedding(nn.Module):
       lon_rng = lon_max-lon_min
 
     M = nx.adjacency_matrix(graph).todense()
-    laplacian = SpectralEmbedding(n_components=laplacian_components) #, affinity='precomputed')
+    laplacian = SpectralEmbedding(n_components=laplacian_components, affinity='precomputed') 
     laplacian_map = laplacian.fit_transform(M)
 
     self.length = 0
