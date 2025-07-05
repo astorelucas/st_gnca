@@ -8,6 +8,8 @@ from tensordict import TensorDict
 def datetime_to_str(dt):
   return dt.strftime("%Y%m%d%H%M%S")
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 def str_to_datetime(dt):
   return datetime.strptime(dt, '%Y%m%d%H%M%S')
 
@@ -29,17 +31,18 @@ def from_datetime_to_pd(date : datetime):
 class TemporalEmbedding(nn.Module):
   def __init__(self, dates, **kwargs):
     super().__init__()
-    self.device = kwargs.get('device','cpu')
-    self.dtype = kwargs.get('dtype',torch.float32)
+    # Use user-specified device, else use global DEVICE
+    self.device = kwargs.get('device', DEVICE)
+    self.dtype = kwargs.get('dtype', torch.float32)
     self.pi2 = torch.tensor([2 * torch.pi], dtype=self.dtype, device=self.device)
-    self.day_minutes = torch.tensor([(1440)], dtype=self.dtype, device=self.device )
+    self.day_minutes = torch.tensor([(1440)], dtype=self.dtype, device=self.device)
     self.week_minutes = torch.tensor([(7 * 1440)], dtype=self.dtype, device=self.device)
     tmp_dict = {}
     self.length = 0
     for date in dates:
       tmp_dict[datetime_to_str(date)] = self.forward(date)
-      self.length += 1 
-    self.embeddings : TensorDict = TensorDict(tmp_dict) 
+      self.length += 1
+    self.embeddings : TensorDict = TensorDict(tmp_dict)
 
   def week_embedding(self, date):
     day_of_week = date.isocalendar()[2]  # Day of week (1: Monday, 7: Sunday)
@@ -96,18 +99,19 @@ class TemporalEmbedding(nn.Module):
 class SinusoidalTemporalEncoding(nn.Module):
     def __init__(self, dates, **kwargs):
         super().__init__()
-        self.device = kwargs.get('device','cpu')
-        self.dtype = kwargs.get('dtype',torch.float32)
+        # Use user-specified device, else use global DEVICE
+        self.device = kwargs.get('device', DEVICE)
+        self.dtype = kwargs.get('dtype', torch.float32)
         self.pi2 = torch.tensor([2 * torch.pi], dtype=self.dtype, device=self.device)
-        self.day_minutes = torch.tensor([(1440)], dtype=self.dtype, device=self.device )
+        self.day_minutes = torch.tensor([(1440)], dtype=self.dtype, device=self.device)
         self.week_minutes = torch.tensor([(7 * 1440)], dtype=self.dtype, device=self.device)
         tmp_dict = {}
         self.length = 0
         for date in dates:
             tmp_dict[datetime_to_str(date)] = self.forward(date)
-            self.length += 1 
+            self.length += 1
             # print(tmp_dict[datetime_to_str(date)].shape)
-        self.embeddings : TensorDict = TensorDict(tmp_dict) 
+        self.embeddings : TensorDict = TensorDict(tmp_dict)
 
     def forward(self, dt, d_model=4):
         '''

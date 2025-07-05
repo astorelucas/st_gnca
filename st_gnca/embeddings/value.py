@@ -1,10 +1,12 @@
 import torch
 from torch import nn
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 class ValueEmbedding(nn.Module):
   def __init__(self, data, **kwargs):
     super().__init__()
-    self.device = kwargs.get('device','cpu')
+    self.device = kwargs.get('device',DEVICE)
     self.dtype = kwargs.get('dtype',torch.float32)
     self.type = kwargs.get('value_embedding_type','normalization')
 

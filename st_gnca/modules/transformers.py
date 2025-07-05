@@ -6,6 +6,7 @@ from st_gnca.common import normalizations
 #My own implementation, already tested
 #Original source:  https://github.com/petroniocandido/clshq_tk/blob/main/clshq_tk/modules/attention.py
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def get_config(model):
   return { 'num_heads': model.num_heads,
@@ -38,7 +39,7 @@ def f_batch_level(x, w):
 
 class MultiHeadAttention(nn.Module):
   def __init__(self, num_heads, num_tokens, embed_dim,
-               device = None, dtype = torch.float64, **kwargs):
+               device = DEVICE, dtype = torch.float64, **kwargs):
     super().__init__()
 
     self.num_heads = num_heads
@@ -124,7 +125,7 @@ class MultiHeadAttention(nn.Module):
 
 class Transformer(nn.Module):
   def __init__(self, num_heads, num_tokens,  embed_dim, feed_forward, activation = nn.GELU(),
-               device = None, dtype=torch.float64, **kwargs):
+               device = DEVICE, dtype=torch.float64, **kwargs):
     super().__init__()
 
     self.num_heads = num_heads

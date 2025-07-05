@@ -4,10 +4,12 @@ from torch import nn
 
 from st_gnca.modules.lsh import LSH
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 class Expert(nn.Module):
     def __init__(self, **kwargs):
         super(Expert, self).__init__()
-        self.device = kwargs.get('device',2)
+        self.device = kwargs.get('device',DEVICE)
         self.dtype = kwargs.get('dtype',2)
         num_layers = kwargs.get('num_layers',2)
         input_dim = kwargs.get('input_dim',2)
@@ -56,7 +58,7 @@ class Expert(nn.Module):
 class Router(nn.Module):
     def __init__(self, **kwargs):
         super(Router, self).__init__()
-        self.device = kwargs.get('device',2)
+        self.device = kwargs.get('device',DEVICE)
         self.dtype = kwargs.get('dtype',2)
 
         self.activate = kwargs.get('activate',1)
@@ -122,7 +124,7 @@ class LSHRouter(nn.Module):
 class SparseMixtureOfExperts(nn.Module):
     def __init__(self, **kwargs):
         super(SparseMixtureOfExperts, self).__init__()
-        self.device = kwargs.get('device',2)
+        self.device = kwargs.get('device',DEVICE)
         self.dtype = kwargs.get('dtype',2)
         self.num_experts = kwargs.get('num_experts',4)
         self.activate = kwargs.get('activate',1)

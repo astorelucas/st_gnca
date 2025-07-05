@@ -3,6 +3,8 @@ import torch
 from torch import nn
 from tensordict import TensorDict
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 activations = {
   'ReLU': nn.ReLU(), 
   'GELU': nn.GELU(), 
@@ -52,7 +54,7 @@ def resume_all(model, optimizer, file):
 class TensorDictDataframe:
   def __init__(self,**kwargs):
     self.dtype = kwargs.get('dtype',torch.float64)
-    self.device = kwargs.get('device','cpu')
+    self.device = kwargs.get('device',DEVICE)
 
     df = kwargs.get('numeric_df',None)
 

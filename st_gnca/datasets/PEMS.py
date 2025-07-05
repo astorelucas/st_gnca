@@ -14,6 +14,7 @@ from st_gnca.common import TensorDictDataframe
 
 from st_gnca.datasets.datasets import SensorDataset, AllSensorDataset
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def get_config(pems):
   return {
@@ -27,7 +28,7 @@ class PEMSBase:
     def __init__(self,**kwargs):
 
       self.dtype = kwargs.get('dtype',torch.float64)
-      self.device = kwargs.get('device','cpu')
+      self.device = kwargs.get('device',DEVICE)
 
       self.steps_ahead = kwargs.get('steps_ahead',1)
 

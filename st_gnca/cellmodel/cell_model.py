@@ -7,6 +7,7 @@ from st_gnca.modules.moe import SparseMixtureOfExperts
 from st_gnca.common import activations, dtypes, get_device
 from st_gnca.datasets.PEMS import get_config as pems_get_config
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def load_config(config):
   return CellModel(num_tokens = config.pop('num_tokens',10), 
@@ -84,7 +85,7 @@ class CellModel(nn.Module):
   def __init__(self, num_tokens, dim_token,
                num_transformers, num_heads, transformer_feed_forward, transformer_activation = nn.GELU(),
                feed_forward = 1, feed_forward_dim = 100, feed_forward_activation = nn.ReLU(),
-               device = None, dtype = torch.float64, **kwargs):
+               device = DEVICE, dtype = torch.float64, **kwargs):
     super().__init__()
     self.num_tokens = num_tokens
     self.num_transformers = num_transformers

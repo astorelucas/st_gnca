@@ -5,13 +5,15 @@ from torch import nn
 from tensordict import TensorDict
 from st_gnca.common import TensorDictDataframe
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 class NeighborhoodTokenizer(nn.Module):
   def __init__(self, **kwargs):
     super().__init__()
 
     self.NULL_SYMBOL = 0
 
-    self.device = kwargs.get('device','cpu')
+    self.device = kwargs.get('device',DEVICE)
     self.dtype = kwargs.get('dtype',torch.float32)
 
     self.graph = kwargs.get('graph',None)

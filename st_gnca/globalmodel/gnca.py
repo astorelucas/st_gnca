@@ -16,6 +16,8 @@ from st_gnca.embeddings.temporal import str_to_datetime, from_datetime_to_pd
 from st_gnca.cellmodel.cell_model import CellModel, get_config as cell_model_get_config, load_config as cell_model_load_config
 from st_gnca.tokenizer.tokenizer import NeighborhoodTokenizer
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 def get_config(model, **extra):
   cell_model_config = cell_model_get_config(model.cell_model)
 
@@ -78,7 +80,7 @@ class GraphCellularAutomata(nn.Module):
   def __init__(self, **kwargs):
     super().__init__()
 
-    self.device = kwargs.get('device','cpu')
+    self.device = kwargs.get('device',DEVICE)
     self.dtype = kwargs.get('dtype',torch.float32)
 
     self.graph : nx.Graph = kwargs.get('graph',None)

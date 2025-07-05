@@ -5,10 +5,12 @@ import torch
 from torch import nn
 from tensordict import TensorDict
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 class SpatialEmbedding(nn.Module):
   def __init__(self, graph, laplacian_components = 2, **kwargs):
     super().__init__()
-    self.device = kwargs.get('device','cpu')
+    self.device = kwargs.get('device',DEVICE)
     self.dtype = kwargs.get('dtype',torch.float32)
     tmp_dict = {}
     self.latlon = kwargs.get("latlon",True)

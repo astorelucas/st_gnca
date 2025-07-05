@@ -6,6 +6,8 @@ import pandas as pd
 import torch
 from torch import nn
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 def gram_schmidt(A):
   # From: https://zerobone.net/blog/cs/gram-schmidt-orthogonalization/
   n, m = A.size()
@@ -45,7 +47,7 @@ class LSH(nn.Module):
     super().__init__()
     output_dim = kwargs.get('output_dim', 1)
     input_dim = kwargs.get('inpput_dim', 1)
-    self.device = kwargs.get('device','cpu')
+    self.device = kwargs.get('device',DEVICE)
     self.dtype = kwargs.get('dtype', torch.float64)
     self.activation = step
 
