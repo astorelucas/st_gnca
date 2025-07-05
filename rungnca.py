@@ -1,14 +1,14 @@
-
-import torch
-from torch import nn
 from st_gnca.datasets.PEMS import PEMS03
 from st_gnca.cellmodel.cell_model import CellModel
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
-import torch.optim as optim
-from torch.utils.data import DataLoader
+import time
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import torch
+from torch import nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
 
 print("Setting up model configuration...")
 # Setup device and data types
@@ -34,7 +34,7 @@ config = {
     'num_tokens': pems.max_length,
     'dim_token': pems.token_dim,
     'num_transformers': 3,
-    'num_heads': 16,
+    'num_heads': 8,
     'transformer_feed_forward': 1024,
     'transformer_activation': nn.GELU(approximate='none'),
     'normalization': torch.nn.LayerNorm,
@@ -63,7 +63,7 @@ gca = GraphCellularAutomata(
 print("Setting up training configuration...")
 BATCH_SIZE = 4096
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 1
+NUM_EPOCHS = 10
 TRAIN_SPLIT = 0.6
 VALIDATION_SPLIT = 0.2
 # Test split will be the remaining 0.1
@@ -88,8 +88,9 @@ train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
 
+
 print("Initializing optimizer and loss function...")
-optimizer = optim.Adam(gca.parameters(), lr=LEARNING_RATE)
+optimizer = optim.AdamW(gca.parameters(), lr=LEARNING_RATE)
 criterion = nn.MSELoss()
 
 # Training loop
@@ -122,19 +123,28 @@ def validate(model, val_loader, criterion):
 train_losses = []
 val_losses = []
 
-# Main training loop
+
+
+# --- Timing: Training ---
 print("Starting training...")
+if DEVICE.type == 'cuda':
+    torch.cuda.synchronize()
+train_start_time = time.time()
 for epoch in range(NUM_EPOCHS):
+    if DEVICE.type == 'cuda':
+        torch.cuda.synchronize()
+    epoch_start_time = time.time()
     train_loss = train_epoch(gca, train_loader, optimizer, criterion)
     val_loss = validate(gca, val_loader, criterion)
-    
     train_losses.append(train_loss)
     val_losses.append(val_loss)
-    
+    if DEVICE.type == 'cuda':
+        torch.cuda.synchronize()
+    epoch_end_time = time.time()
     print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
     print(f"Training Loss: {train_loss:.6f}")
     print(f"Validation Loss: {val_loss:.6f}")
-    
+    print(f"Epoch time: {epoch_end_time - epoch_start_time:.2f} seconds ({(epoch_end_time - epoch_start_time)/60:.2f} min)")
     # Save model checkpoint
     if (epoch + 1) % 10 == 0:
         checkpoint = {
@@ -145,6 +155,22 @@ for epoch in range(NUM_EPOCHS):
             'val_loss': val_loss,
         }
         torch.save(checkpoint, f'checkpoint_epoch_{epoch+1}.pt')
+if DEVICE.type == 'cuda':
+    torch.cuda.synchronize()
+train_end_time = time.time()
+print(f"Total training time: {train_end_time - train_start_time:.2f} seconds ({(train_end_time - train_start_time)/60:.2f} min)")
+
+# --- Plot training and validation loss per epoch ---
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Training Loss', marker='o')
+plt.plot(val_losses, label='Validation Loss', marker='x')
+plt.title('Training and Validation Loss per Epoch')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
 
 def compute_mae(pred, target):
@@ -156,7 +182,11 @@ def compute_rmse(pred, target):
 print("Training completed!")
 
 
-# Final evaluation on test set with MAE and RMSE
+
+# --- Timing: Test ---
+if DEVICE.type == 'cuda':
+    torch.cuda.synchronize()
+test_start_time = time.time()
 gca.eval()
 test_loss = 0
 mae_total = 0
@@ -173,10 +203,13 @@ num_batches = len(test_loader)
 test_loss = test_loss / num_batches
 test_mae = mae_total / num_batches
 test_rmse = rmse_total / num_batches
+if DEVICE.type == 'cuda':
+    torch.cuda.synchronize()
+test_end_time = time.time()
 print(f"Final Test Loss (MSE): {test_loss:.6f}")
 print(f"Final Test MAE: {test_mae:.6f}")
-
 print(f"Final Test RMSE: {test_rmse:.6f}")
+print(f"Total Test time: {test_end_time - test_start_time:.2f} seconds ({(test_end_time - test_start_time)/60:.2f} min)")
 
 # --- Plot predictions vs real values for a small period ---
 # Get a small batch from the test set
