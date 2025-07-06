@@ -21,9 +21,9 @@ DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 # Initialize PEMS03 dataset
 pems = PEMS03(
-    edges_file=DATA_PATH + 'edges.csv',
-    nodes_file=DATA_PATH + 'nodes.csv',
-    data_file=DATA_PATH + 'data.csv',
+    edges_file=DATA_PATH + 'edges_top.csv',
+    nodes_file=DATA_PATH + 'nodes_top.csv',
+    data_file=DATA_PATH + 'data_top.csv',
     device=DEVICE,
     dtype=DTYPE,
     steps_ahead=1  # for 5-minute ahead prediction
@@ -63,7 +63,7 @@ gca = GraphCellularAutomata(
 print("Setting up training configuration...")
 BATCH_SIZE = 4096
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 10
+NUM_EPOCHS = 5
 TRAIN_SPLIT = 0.6
 VALIDATION_SPLIT = 0.2
 # Test split will be the remaining 0.1
