@@ -72,8 +72,8 @@ class MultiHeadAttention(nn.Module):
 
     x = x.to(self.dtype)
 
-    Z = torch.zeros(b, self.num_heads, self.num_tokens, self.dv, device = self.device, dtype = self.dtype)
-    Z2 = torch.zeros(b, self.num_tokens, self.embed_dim, device = self.device, dtype = self.dtype)
+    Z = torch.zeros(b, self.num_heads, self.num_tokens, self.dv, device = self.device, dtype = torch.float32)
+    Z2 = torch.zeros(b, self.num_tokens, self.embed_dim, device = self.device, dtype = torch.float32)
     for h in range(self.num_heads):
       Q_seq_fun = lambda x : f_sequence_level(x, self.num_tokens, self.WQ[h])
       Q_sequence_level = torch.func.vmap(Q_seq_fun, in_dims=0)

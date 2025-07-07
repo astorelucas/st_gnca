@@ -24,7 +24,7 @@ def get_config(model, **extra):
   gca_config = { 
     'graph': model.graph, 
     'max_length': model.max_length,
-    'token_size': model.token_size,
+    'token_dim': model.token_dim,
     'tokenizer': model.tokenizer,
     'cell_model': model.cell_model
   }
@@ -36,7 +36,7 @@ def get_config(model, **extra):
 def load_config(config):
   return GraphCellularAutomata(graph = config.pop('graph',None), 
                    max_lengh = config.pop('max_lengh',10),
-                   token_size = config.pop('token_size',10), 
+                   token_dim = config.pop('token_dim',10), 
                    tokenizer = config.pop('tokenizer',None), 
                    cell_model = config.pop('cell_model',None),
                    device = config.pop('device',None), 
@@ -85,11 +85,11 @@ class GraphCellularAutomata(nn.Module):
 
     self.graph : nx.Graph = kwargs.get('graph',None)
 
-    self.nodes : list = sorted([k for k in self.graph.nodes()])
+    self.nodes : list = sorted([k for k in self.graph.nodes()]) #why sorted?
 
     self.num_nodes = len(self.nodes)
     self.max_length = kwargs.get('max_length',None)
-    self.token_size = kwargs.get('token_size',None)
+    self.token_dim = kwargs.get('token_dim',None)
 
     self.tokenizer : NeighborhoodTokenizer  = kwargs.get('tokenizer',None)
 
@@ -108,14 +108,16 @@ class GraphCellularAutomata(nn.Module):
     return self.cell_model.forward(sequences)
   
   def step(self, timestamp, current_state):
-    tokens = torch.empty(self.num_nodes, self.max_length, self.token_size, dtype=self.dtype, device=self.device)
+    tokens = torch.empty(self.num_nodes, self.max_length, self.token_dim, dtype=torch.float32, device=self.device)
+    # print(f"Tokens matriz size {tokens.shape} for {self.num_nodes} nodes with max length {self.max_length} and token size {self.token_dim}")
     for ix, node in enumerate(self.nodes):
-      tokens[ix, :, :] = self.tokenizer.tokenize(timestamp, current_state, node)
+      tokens[ix, :, :] = self.tokenizer.tokenize(timestamp, current_state, node) #ta construindo uma matriz de tokens, pra cada nó
     return self.forward(tokens) 
   
   def batch_run(self, initial_states, iterations, increment_type='minute', increment=1, **kwargs) -> torch.Tensor:
+    # print(f"Running batch with {len(initial_states['timestamp'])} initial states.")
     batch = len(initial_states['timestamp'])
-    state_history = torch.zeros(batch, self.num_nodes, dtype=self.dtype, device=self.device)
+    state_history = torch.zeros(batch, self.num_nodes, dtype=torch.float32, device=self.device)
     for ix in range(batch):
       initial_state = TensorDict({key : initial_states[key][ix] for key in initial_states.keys()})
       initial_date = str_to_datetime(initial_state['timestamp'])
@@ -139,9 +141,10 @@ class GraphCellularAutomata(nn.Module):
     if return_type == 'tensordict':
       state_history = []
     else:
-      state_history = torch.empty(self.num_nodes, dtype=self.dtype, device=self.device)
+      state_history = torch.empty(self.num_nodes, dtype=torch.float32, device=self.device)
     for ix, ts in enumerate(timestamp_generator(initial_date, iterations, increment_type, increment), start=0):
-      result = self.step(ts, current_state)
+      # print(f'Running iteration {ix+1}/{iterations} at {ts}')
+      result = self.step(ts, current_state) # manda 
       new_state = self.build_state(ts, result) 
       current_state = new_state
 
@@ -150,6 +153,7 @@ class GraphCellularAutomata(nn.Module):
       else:
         state_history = result.flatten()
 
+    # print("Finished running all iterations, returning state_history.")
     return state_history
   
   def to(self, *args, **kwargs):

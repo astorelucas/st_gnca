@@ -77,16 +77,20 @@ class PEMSBase:
 
       # The maximum sequence length is equal to the maximum graph degree, or the
       # maximum number of neighbors a node have in the graph
+      # Náo entendi isso.. pq nao podemos aumentar o sequence length?
+
       self.max_length = max([d for n, d in self.G.degree()]) + 1
 
       # precompute and store all time embeddings to save processing
       self.time_embeddings = SinusoidalTemporalEncoding(self.data['timestamp'], dtype=self.dtype, device=self.device)
 
       self.num_sensors = self.G.number_of_nodes()
+      # print(f'PEMS dataset has {self.num_sensors} sensors')
 
       #self.sensors = sorted([k for k in self.G.nodes()])
-
+      # print(f'PEMS dataset has {len(self.data)} samples')
       self.num_samples = len(self.data) - self.steps_ahead
+      # print(f'PEMS dataset has {self.num_samples} samples')
       self.token_dim = 9
 
       self.value_index = 4

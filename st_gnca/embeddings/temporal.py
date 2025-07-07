@@ -23,9 +23,10 @@ def from_np_to_datetime(dt):
 def from_pd_to_datetime(dt):
   return datetime(dt.year, dt.month, dt.day, dt.hour, dt.minute)
   
-def from_datetime_to_pd(date : datetime):
-
-  return to_pandas_datetime(np.datetime64(date.astimezone(None)))
+def from_datetime_to_pd(date: datetime):
+    if date.tzinfo is not None:
+        date = date.replace(tzinfo=None)
+    return to_pandas_datetime(date)
 
 
 class TemporalEmbedding(nn.Module):

@@ -110,7 +110,7 @@ class SensorDataset(Dataset):
   
 
 class AllSensorDataset(Dataset):
-  def __init__(self, pems, train = 0.8, **kwargs):
+  def __init__(self, pems, train = 0.7, **kwargs):
     super().__init__()
 
     self.pems = pems
@@ -123,10 +123,10 @@ class AllSensorDataset(Dataset):
 
     self.train_pct = train
 
-    self.train_split = int(train * self.pems.num_samples) 
+    self.train_split = int(train * self.pems.num_samples)  # num_samplesPEMS03 = 26208
     self.test_split = self.pems.num_samples - self.train_split 
 
-    self.samples = self.pems.num_samples * self.pems.num_sensors
+    self.all_samples = self.pems.num_samples * self.pems.num_sensors
 
     self.is_validation = False
 

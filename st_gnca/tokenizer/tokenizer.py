@@ -66,8 +66,8 @@ class NeighborhoodTokenizer(nn.Module):
     tokens = tokens.reshape(1, m, self.token_dim)
 
     tokens = torch.hstack([tokens, torch.full((1, self.max_length - m, self.token_dim), self.NULL_SYMBOL, 
-                                              dtype=self.dtype, device=self.device)])
-
+                                              dtype=torch.float32, device=self.device)])
+    # print(f"Tokenized {node} with {m} neighbors into shape {tokens.shape}")
     return tokens
   
   # Create an empty sequence of tokens (filled with -1)

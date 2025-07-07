@@ -172,3 +172,55 @@ class CellModel(nn.Module):
       self.moe = self.moe.train(*args, **kwargs)
       self.final = self.final.train(*args, **kwargs)
     return self
+  
+
+  # LSTM-based CellModel implementation
+
+class LSTMCellModel(nn.Module):
+    def __init__(self, num_tokens, dim_token, hidden_size=128, num_layers=2, dropout=0.15, device=DEVICE, dtype=torch.float32, **kwargs):
+        super().__init__()
+        self.num_tokens = num_tokens
+        self.dim_token = dim_token
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.device = device
+        self.dtype = dtype
+
+        # LSTM expects input shape (batch, seq, feature)
+        self.lstm = nn.LSTM(
+            input_size=dim_token,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0,
+        ).to(device=device, dtype=dtype)
+
+        self.fc = nn.Linear(hidden_size, 1, dtype=dtype, device=device)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # x: (batch, seq_len=num_tokens, dim_token)
+        # LSTM returns output for all timesteps, we use the last one
+        out, _ = self.lstm(x)
+        out = out[:, -1, :]  # Take last time step
+        out = self.drop(out)
+        out = self.fc(out)
+        return out
+    
+    def train(self, *args, **kwargs):
+        super().train(*args, **kwargs)
+        self.lstm = self.lstm.train(*args, **kwargs)
+        self.fc = self.fc.train(*args, **kwargs)
+        self.drop = self.drop.train(*args, **kwargs)
+        return self
+    
+    def to(self, *args, **kwargs):
+        self = super().to(*args, **kwargs)
+        if isinstance(args[0], str):
+            self.device = args[0]
+        else:
+            self.dtype = args[0]
+        self.lstm = self.lstm.to(*args, **kwargs)
+        self.fc = self.fc.to(*args, **kwargs)
+        self.drop = self.drop.to(*args, **kwargs)
+        return self
