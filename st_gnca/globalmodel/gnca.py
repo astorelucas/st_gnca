@@ -114,7 +114,7 @@ class GraphCellularAutomata(nn.Module):
       tokens[ix, :, :] = self.tokenizer.tokenize(timestamp, current_state, node) #ta construindo uma matriz de tokens, pra cada nó
     return self.forward(tokens) 
   
-  def batch_run(self, initial_states, iterations, increment_type='minute', increment=1, **kwargs) -> torch.Tensor:
+  def batch_run(self, initial_states, iterations, increment, increment_type='minute', **kwargs) -> torch.Tensor:
     # print(f"Running batch with {len(initial_states['timestamp'])} initial states.")
     batch = len(initial_states['timestamp'])
     state_history = torch.zeros(batch, self.num_nodes, dtype=torch.float32, device=self.device)
@@ -122,17 +122,17 @@ class GraphCellularAutomata(nn.Module):
       initial_state = TensorDict({key : initial_states[key][ix] for key in initial_states.keys()})
       initial_date = str_to_datetime(initial_state['timestamp'])
       state_history[ix, :] = self.run(initial_date, initial_state, iterations, 
-                                      increment_type, increment, return_type='tensor', 
+                                      increment, increment_type, return_type='tensor', 
                                       **kwargs)
     return state_history
   
   def run_dict(self, initial_state, iterations, increment_type='minute', increment=1, **kwargs):
     initial_date = str_to_datetime(initial_state['timestamp'])
     return self.run(initial_date, initial_state, iterations, 
-                                      increment_type, increment, return_type='tensordict', 
+                                      increment, increment_type, return_type='tensordict', 
                                       **kwargs)
   
-  def run(self, initial_date, initial_state, iterations, increment_type='minute', increment=1, **kwargs) -> torch.Tensor:
+  def run(self, initial_date, initial_state, iterations, increment, increment_type='minute',**kwargs) -> torch.Tensor:
     if isinstance(initial_date, datetime):
       initial_date = from_datetime_to_pd(initial_date)
     
@@ -141,7 +141,7 @@ class GraphCellularAutomata(nn.Module):
     if return_type == 'tensordict':
       state_history = []
     else:
-      state_history = torch.empty(self.num_nodes, dtype=torch.float32, device=self.device)
+      state_history = torch.empty(self.num_nodes, dtype=torch.float32, device=self.device) 
     for ix, ts in enumerate(timestamp_generator(initial_date, iterations, increment_type, increment), start=0):
       # print(f'Running iteration {ix+1}/{iterations} at {ts}')
       result = self.step(ts, current_state) # manda 

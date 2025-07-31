@@ -52,42 +52,10 @@ config = {
     'dtype': DTYPE
 }
 
-# config = {
-#     'num_tokens': pems.max_length,
-#     'dim_token': pems.token_dim,
-#     'num_transformers': 3,
-#     'num_heads': 16,
-#     'transformer_feed_forward': 1024,
-#     'transformer_activation': nn.GELU(approximate='none'),
-#     'normalization': torch.nn.modules.normalization.LayerNorm,
-#     'pre_norm': False,
-#     'feed_forward': 3,
-#     'feed_forward_dim': 1024,
-#     'feed_forward_activation': nn.GELU(approximate='none'),
-#     'device': DEVICE,
-#     'dtype': DTYPE,
-#     'steps_ahead': STEPS_AHEAD
-#  }
 
-
-configLSTM = {
-    'num_tokens': 12, #Sequence length T
-    'dim_token': pems.token_dim, #Input dim per node F
-    'hidden_size': 1024,
-    'lstm_depth': 3,
-    'lstm_feed_forward': 1024,
-    'feed_forward_activation': nn.GELU(approximate='none'),
-    'output_dim': 1,  # Output dimension per node F
-    'device': DEVICE,
-    'dtype': DTYPE
-}
 
 # Create the cell model
 model = CellModel(**config)
-
-# cm = CellModel(num_tokens = pems.max_length, dim_token = pems.token_dim,
-#                num_transformers = 2, num_heads = 8, feed_forward = 512, transformer_activation = nn.GELU(),
-#                mlp = 3, mlp_dim = 512, mlp_activation = nn.GELU(), dtype = torch.float64)
 
 ''''.  '''
 # Create the Graph Cellular Automata
@@ -109,7 +77,29 @@ TRAIN_SPLIT = 0.6
 VALIDATION_SPLIT = 0.2
 # Test split will be the remaining 0.1
 
-finetune_ds = FineTunningDataset(pems, increment_type='hours', increment=1, steps_ahead=1, step=250, train = 0.7)
+
+# Get the dataset for all sensors
+dataset = pems.get_allsensors_dataset()
+#dataset = pems.get_sensor_dataset(300, dtype=torch.float32, behavior='deterministic')
+
+print("Splitting dataset...")
+total_size = len(dataset)
+train_size = int(TRAIN_SPLIT * total_size)
+val_size = int(VALIDATION_SPLIT * total_size)
+test_size = total_size - train_size - val_size
+
+# Split the dataset
+train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
+    dataset, [train_size, val_size, test_size]
+)
+
+# Create data loaders
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
+
+train_losses = []
+val_losses = []
 
 print("Initializing optimizer and loss function...")
 optimizer = optim.AdamW(gca.parameters(), lr=LEARNING_RATE)
@@ -119,6 +109,7 @@ criterion = nn.MSELoss()
 def train_epoch(model, train_loader, optimizer, criterion):
     model.train()
     total_loss = 0
+    print(f'--------{train_loader}------- ') ## --------<class 'torch.utils.data.dataloader.DataLoader'>, 129-------
     for _ , (X, y) in enumerate(tqdm(train_loader, desc="Training")):
         optimizer.zero_grad()
         output = model(X)

@@ -9,9 +9,10 @@ import torch
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from st_gnca.cellmodel.cell_model import CellModel, save_as, setup
+from st_gnca.cellmodel.cell_model import CellModel_LSTM, CellModel, CellModelxLSTM, save_as, setup
 from st_gnca.finetuning import FineTunningDataset, finetune_loop
 from st_gnca.evaluate import evaluate, diff_states
+from xLSTM import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
 
 print("Setting up model configuration...")
 # Setup device and data types
@@ -38,23 +39,55 @@ pems = PEMS03(
 )
 
 # Create model configuration
+# # Luan - check the parameters. check activation function
+# config = {
+#     'num_tokens': pems.max_length,
+#     'dim_token': pems.token_dim,
+#     'num_transformers': 3,
+#     'num_heads': 8,
+#     'transformer_feed_forward': 1024,
+#     'transformer_activation': nn.GELU(approximate='none'),
+#     'normalization': torch.nn.LayerNorm,
+#     'pre_norm': False,
+#     'feed_forward': 3,
+#     'feed_forward_dim': 1024,
+#     'feed_forward_activation': nn.GELU(approximate='none'),
+#     'device': DEVICE,
+#     'dtype': DTYPE
+#     }
+
+# model = CellModel(**config)
+
+
 config = {
     'num_tokens': pems.max_length,
     'dim_token': pems.token_dim,
-    'num_transformers': 3,
-    'num_heads': 8,
-    'transformer_feed_forward': 1024,
-    'transformer_activation': nn.GELU(approximate='none'),
-    'normalization': torch.nn.LayerNorm,
-    'pre_norm': False,
-    'feed_forward': 3,
-    'feed_forward_dim': 1024,
-    'feed_forward_activation': nn.GELU(approximate='none'),
+    'hidden_size': 128,
+    'num_layers': 2,
     'device': DEVICE,
     'dtype': DTYPE
     }
 
-model = CellModel(**config)
+input_len = 12
+output_len = 3
+hidden_dim = 128
+
+cfg = xLSTMBlockStackConfig(
+    mlstm_block=mLSTMBlockConfig(
+        mlstm=mLSTMLayerConfig(conv1d_kernel_size=3, num_heads=4)
+    ),
+    slstm_block=sLSTMBlockConfig(
+        slstm=sLSTMLayerConfig(backend="cuda", num_heads=2, conv1d_kernel_size=3),
+        feedforward=FeedForwardConfig(proj_factor=1.0, act_fn="gelu")
+    ),
+    context_length=input_len,
+    num_blocks=3,
+    embedding_dim=hidden_dim,
+    slstm_at=[1]
+)
+
+model = CellModelxLSTM(pems.num_sensors, cfg)
+
 
 gca = GraphCellularAutomata(device=model.device,
                              dtype=model.dtype, 
@@ -64,10 +97,10 @@ gca = GraphCellularAutomata(device=model.device,
                             tokenizer=pems.tokenizer, 
                             cell_model = model)
 
-print("Setting up training configuration...")
-BATCH_SIZE = 256
+print("1 - Setting up training configuration...")
+BATCH_SIZE = 512 #
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 1
+NUM_EPOCHS = 1 #20-50-100
 TRAIN_SPLIT = 0.7
 
 finetune_ds = FineTunningDataset(pems,
@@ -80,9 +113,9 @@ finetune_ds = FineTunningDataset(pems,
 finetune_loop(DEVICE, 
               finetune_ds,
               gca, 
-              iterations = 12, 
+              iterations = 12, # 
               increment_type='minutes',
-              increment=5,
+              increment=5, # 5 to 5 minutes
               epochs = NUM_EPOCHS, 
               batch = BATCH_SIZE, 
               lr = LEARNING_RATE,

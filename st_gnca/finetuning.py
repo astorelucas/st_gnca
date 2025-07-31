@@ -129,14 +129,17 @@ def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
   #for ct in range(batch):
   #  error = torch.tensor([0], dtype=model.dtype, device=model.device)
   #  map = torch.tensor([0], dtype=model.dtype, device=model.device)
-  for X, y in train: 
+  for X, y in tqdm(train, desc="Training batches", total=len(train)):   
     optim.zero_grad()
+    print("X shape: ", X.shape, "y shape: ", y.shape)
+    print("X: ", X)
+    print("y: ", y)
 
     #X = X.to(DEVICE)
     #y = y.to(DEVICE)
 
     y_pred = model.batch_run(initial_states = X, iterations = iterations,
-                      increment_type = increment_type, increment = increment)
+                      increment = increment, increment_type = increment_type)
 
     error = loss(y.squeeze(), y_pred.squeeze())
     map = mape(y.squeeze(), y_pred.squeeze())
@@ -161,7 +164,7 @@ def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
     #for ct in range(batch):
     #  error_val = torch.tensor([0], dtype=model.dtype, device=model.device)
     #  map_val = torch.tensor([0], dtype=model.dtype, device=model.device)
-    for X,y in test:
+    for X,y in tqdm(test, desc="Testing batches", total=len(test)):
 
       #X = X.to(DEVICE)
       #y = y.to(DEVICE)

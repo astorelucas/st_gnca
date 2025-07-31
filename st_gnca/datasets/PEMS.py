@@ -72,6 +72,7 @@ class PEMSBase:
 
         laplacian_components = 4
 
+      # TO-DO - Use Graph Attention implementation of spatial embedding
       self.node_embeddings = SpatialEmbedding(self.G, latlon=self.latlon, laplacian_components = laplacian_components,
                                               dtype=self.dtype, device=self.device)
 
