@@ -131,9 +131,6 @@ def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
   #  map = torch.tensor([0], dtype=model.dtype, device=model.device)
   for X, y in tqdm(train, desc="Training batches", total=len(train)):   
     optim.zero_grad()
-    print("X shape: ", X.shape, "y shape: ", y.shape)
-    print("X: ", X)
-    print("y: ", y)
 
     #X = X.to(DEVICE)
     #y = y.to(DEVICE)
