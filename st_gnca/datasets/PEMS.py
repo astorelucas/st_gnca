@@ -204,9 +204,9 @@ class PEMSBase:
 class PEMS03(PEMSBase):
     def __init__(self,**kwargs):
       super(PEMS03, self).__init__(latlon = True, 
-                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/lucasastore/st_gnca/refs/heads/main/st_gnca/data/PEMS03/edges.csv"),
-                                   nodes_file = kwargs.pop('nodes_file', "https://raw.githubusercontent.com/lucasastore/st_gnca/refs/heads/main/st_gnca/data/PEMS03/nodes.csv"),
-                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/lucasastore/st_gnca/refs/heads/main/st_gnca/data/PEMS03/data.csv"),
+                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/astorelucas/st_gnca/refs/heads/main/st_gnca/data/PEMS03/edges.csv"),
+                                   nodes_file = kwargs.pop('nodes_file', "https://raw.githubusercontent.com/astorelucas/st_gnca/refs/heads/main/st_gnca/data/PEMS03/nodes.csv"),
+                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/astorelucas/st_gnca/refs/heads/main/st_gnca/data/PEMS03/data.csv"),
                                    **kwargs)
 
 class PEMS04(PEMSBase):
