@@ -49,9 +49,10 @@ class NeighborhoodTokenizer(nn.Module):
   
   def tokenize(self, timestamp, values, node):
     val = self.value_embedder(values[str(node)])
-    tim_emb = self.temporal_embedding(timestamp)
-
-    tokens = self.spatial_embedding[node]
+    
+    tim_emb = self.temporal_embedding(timestamp).to(self.device)
+    tokens = self.spatial_embedding[node].to(self.device)
+    
     tokens = torch.hstack([tokens, val ])
     tokens = torch.hstack([tokens, tim_emb])
 
