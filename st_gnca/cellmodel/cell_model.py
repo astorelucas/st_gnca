@@ -236,6 +236,7 @@ class CellModel_xLSTM(nn.Module):
         self.dtype = dtype
         self.num_nodes = num_nodes
         self.output_len = output_len
+        self.input_proj = nn.Linear(num_nodes, hidden_dim)
         self.xlstm = xLSTMBlockStack(config)
         self.drop = nn.Dropout(dropout)
         self.output_proj = nn.Linear(hidden_dim, num_nodes * output_len)
