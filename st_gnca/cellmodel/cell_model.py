@@ -230,21 +230,25 @@ class CellModel_LSTM(nn.Module):
     
 
 class CellModel_xLSTM(nn.Module):
-    def __init__(self, layers, x_example, depth=4, factor=2, dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
+    def __init__(self, cfg, num_nodes, output_len, x_example, hidden_dim , dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
         super().__init__()
         self.device = device
         self.dtype = dtype
-        self.xlstm = xLSTMBlockStack(layers, x_example, depth=depth, factor=factor).to(device=device, dtype=dtype)
+        self.num_nodes = num_nodes
+        self.output_len = output_len
+        self.xlstm = xLSTMBlockStack(cfg)
         self.drop = nn.Dropout(dropout)
-        # Optionally, add a final linear layer if you want to map to a specific output size
-        self.output_dim = kwargs.get('output_dim', x_example.shape[2])
+        self.output_proj = nn.Linear(hidden_dim, num_nodes * output_len)
         self.fc = nn.Linear(x_example.shape[2], self.output_dim, dtype=dtype, device=device)
 
     def forward(self, x):
-        out = self.xlstm(x)
-        out = self.drop(out)
-        out = self.fc(out)
-        return out
+        num_nodes = self.num_nodes
+        output_len = self.output_len
+        x = self.input_proj(x)
+        x = self.xlstm(x)
+        x = x[:, -1, :]
+        x = self.output_proj(x)
+        return x.view(-1, output_len, num_nodes)
 
     def to(self, *args, **kwargs):
         self = super().to(*args, **kwargs)
