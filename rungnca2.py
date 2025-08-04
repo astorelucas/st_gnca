@@ -14,7 +14,7 @@ from st_gnca.evaluate import evaluate, diff_states
 
 from xlstm import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
 
-'''
+
 print("Setting up model configuration...")
 # Setup device and data types
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -125,4 +125,3 @@ finetune_loop(DEVICE,
 
 df = evaluate(finetune_ds.test(), gca, ITERATIONS, increment_type='minutes', increment=5)
 # print(df)
-'''
