@@ -6,9 +6,9 @@ from st_gnca.modules.transformers import Transformer, get_config as transformer_
 from st_gnca.modules.moe import SparseMixtureOfExperts
 from st_gnca.common import activations, dtypes, get_device
 from st_gnca.datasets.PEMS import get_config as pems_get_config
-from xLSTM import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
 
-# from st_gnca.modules.xlstm import xLSTM
+from xlstm import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
+
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -234,7 +234,7 @@ class CellModel_xLSTM(nn.Module):
         super().__init__()
         self.device = device
         self.dtype = dtype
-        self.xlstm = xLSTM(layers, x_example, depth=depth, factor=factor).to(device=device, dtype=dtype)
+        self.xlstm = xLSTMBlockStack(layers, x_example, depth=depth, factor=factor).to(device=device, dtype=dtype)
         self.drop = nn.Dropout(dropout)
         # Optionally, add a final linear layer if you want to map to a specific output size
         self.output_dim = kwargs.get('output_dim', x_example.shape[2])
@@ -258,38 +258,4 @@ class CellModel_xLSTM(nn.Module):
         self.xlstm = self.xlstm.train(*args, **kwargs)
         self.fc = self.fc.train(*args, **kwargs)
         self.drop = self.drop.train(*args, **kwargs)
-        return self
-    
-
-class CellModelxLSTM(nn.Module):
-    def __init__(self, num_nodes, cfg, hidden_dim=128, output_len=3, device=DEVICE, dtype=torch.float32):
-        super().__init__()
-        self.num_nodes = num_nodes
-        self.output_len = output_len
-        self.device = device
-        self.dtype = dtype
-        self.input_proj = nn.Linear(num_nodes, hidden_dim)
-        self.xlstm = xLSTMBlockStack(cfg)
-        self.output_proj = nn.Linear(hidden_dim, num_nodes * output_len)
-
-    def forward(self, x):
-        # x: (B, T, N)
-        output_len = self.output_len
-        num_nodes = self.num_nodes
-        x = self.input_proj(x)  # -> (B, T, H)
-        x = self.xlstm(x)       # -> (B, T, H)
-        x = x[:, -1, :]         # pega último passo
-        x = self.output_proj(x) # -> (B, N * output_len)
-        return x.view(-1, output_len, num_nodes)  # -> (B, output_len, N)
-    
-    def train(self, mode=True):
-        super().train(mode)
-        print("Entrando em modo de treinamento:", mode)
-        return self
-    
-    def to(self, device):
-        super().to(device)
-        self.xlstm.to(device)  # às vezes precisa disso explicitamente se usa camadas customizadas
-        self.input_proj.to(device)
-        self.output_proj.to(device)
         return self

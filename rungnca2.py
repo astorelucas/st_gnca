@@ -1,5 +1,4 @@
 from st_gnca.datasets.PEMS import PEMS03
-from st_gnca.cellmodel.cell_model import CellModel
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 import time
 import numpy as np
@@ -9,11 +8,13 @@ import torch
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from st_gnca.cellmodel.cell_model import CellModel_LSTM, CellModel, CellModelxLSTM, save_as, setup
+from st_gnca.cellmodel.cell_model import CellModel_LSTM, CellModel, CellModel_xLSTM, save_as, setup
 from st_gnca.finetuning import FineTunningDataset, finetune_loop
 from st_gnca.evaluate import evaluate, diff_states
-from xLSTM import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
 
+from xlstm import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
+
+'''
 print("Setting up model configuration...")
 # Setup device and data types
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -86,7 +87,7 @@ cfg = xLSTMBlockStackConfig(
     slstm_at=[1]
 )
 
-model = CellModelxLSTM(pems.num_sensors, cfg)
+model = CellModel_xLSTM(pems.num_sensors, cfg)
 
 
 gca = GraphCellularAutomata(device=model.device,
@@ -124,3 +125,4 @@ finetune_loop(DEVICE,
 
 df = evaluate(finetune_ds.test(), gca, ITERATIONS, increment_type='minutes', increment=5)
 # print(df)
+'''
