@@ -230,7 +230,7 @@ class CellModel_LSTM(nn.Module):
     
 
 class CellModel_xLSTM(nn.Module):
-    def __init__(self, cfg, num_nodes, output_len, x_example, hidden_dim , dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
+    def __init__(self, cfg, num_nodes, output_len, hidden_dim , dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
         super().__init__()
         self.device = device
         self.dtype = dtype
@@ -239,7 +239,6 @@ class CellModel_xLSTM(nn.Module):
         self.xlstm = xLSTMBlockStack(cfg)
         self.drop = nn.Dropout(dropout)
         self.output_proj = nn.Linear(hidden_dim, num_nodes * output_len)
-        self.fc = nn.Linear(x_example.shape[2], self.output_dim, dtype=dtype, device=device)
 
     def forward(self, x):
         num_nodes = self.num_nodes
