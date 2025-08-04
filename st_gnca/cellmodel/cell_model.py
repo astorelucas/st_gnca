@@ -244,11 +244,17 @@ class CellModel_xLSTM(nn.Module):
     def forward(self, x):
         num_nodes = self.num_nodes
         output_len = self.output_len
-        x = self.input_proj(x)
-        x = self.xlstm(x)
-        x = x[:, -1, :]
-        x = self.output_proj(x)
+
+        # Ensure x has shape [batch_size, seq_len, num_nodes]
+        if x.shape[-1] != self.num_nodes:
+            x = x.permute(0, 2, 1)  # [batch, seq_len, num_nodes]
+
+        x = self.input_proj(x)         # [batch, seq_len, hidden_dim]
+        x = self.xlstm(x)              # xLSTM expects this shape
+        x = x[:, -1, :]                # Take last timestep
+        x = self.output_proj(x)        # [batch, num_nodes * output_len]
         return x.view(-1, output_len, num_nodes)
+
 
     def to(self, *args, **kwargs):
         self = super().to(*args, **kwargs)
