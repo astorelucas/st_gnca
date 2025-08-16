@@ -230,32 +230,39 @@ class CellModel_LSTM(nn.Module):
     
 
 class CellModel_xLSTM(nn.Module):
-    def __init__(self, config, num_nodes, output_len, hidden_dim , dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
+    def __init__(self, num_nodes, input_len, output_len, hidden_dim, cfg, dropout=0.15, device=DEVICE, dtype=torch.float64, **kwargs):
         super().__init__()
+        self.num_nodes = num_nodes
+        self.input_len = input_len
+        self.output_len = output_len
+        self.hidden_dim = hidden_dim
         self.device = device
         self.dtype = dtype
-        self.num_nodes = num_nodes
-        self.output_len = output_len
-        self.input_proj = nn.Linear(num_nodes, hidden_dim)
-        self.xlstm = xLSTMBlockStack(config)
-        self.drop = nn.Dropout(dropout)
+        self.token_dim = 9
+        # Projects each timestep's node vector (length = num_nodes) to hidden_dim
+        self.input_proj = nn.Linear(self.token_dim, self.hidden_dim)
+
+        # The xLSTM block takes input of shape [B, T, hidden_dim]
+        self.xlstm = xLSTMBlockStack(cfg)
+
+        # Output projection: from hidden_dim → (num_nodes * output_len)
         self.output_proj = nn.Linear(hidden_dim, num_nodes * output_len)
 
+        # Add dropout layer
+        self.drop = nn.Dropout(dropout)
+
     def forward(self, x):
-        num_nodes = self.num_nodes
-        output_len = self.output_len
-
-        # Ensure x has shape [batch_size, seq_len, num_nodes]
-        if x.shape[-1] != self.num_nodes:
-            x = x.permute(0, 2, 1)  # [batch, seq_len, num_nodes]
-
-        x = self.input_proj(x)         # [batch, seq_len, hidden_dim]
-        x = self.xlstm(x)              # xLSTM expects this shape
-        x = x[:, -1, :]                # Take last timestep
-        x = self.output_proj(x)        # [batch, num_nodes * output_len]
-        return x.view(-1, output_len, num_nodes)
-
-
+        # x: [B, N, T, D]
+        B, N, T, D = x.shape
+        x = x.view(B * N, T, D)
+        x = self.input_proj(x)
+        x = self.xlstm(x)
+        x = x[:, -1, :]
+        x = self.output_proj(x)
+        x = x.view(B, N, self.output_len, self.num_nodes)
+        x = x.mean(dim=1)  # Aggregate over nodes if needed
+        return x  # [B, output_len, num_nodes]
+    
     def to(self, *args, **kwargs):
         self = super().to(*args, **kwargs)
         self.xlstm = self.xlstm.to(*args, **kwargs)
@@ -267,3 +274,118 @@ class CellModel_xLSTM(nn.Module):
         self.xlstm = self.xlstm.train(*args, **kwargs)
         self.drop = self.drop.train(*args, **kwargs)
         return self
+    
+class xLSTMForecast2(nn.Module):
+    def __init__(self, token_dim, max_length, output_len, hidden_dim, cfg, dropout=0.15, device="cuda", dtype=torch.float64):
+        super().__init__()
+        self.token_dim = token_dim    # Embedding size of each token (spatial + value + temporal)
+        self.max_length = max_length  # Max nodes (main + neighbors)
+        self.output_len = output_len
+        self.hidden_dim = hidden_dim
+        self.device = device
+        self.dtype = dtype
+
+        # Project token_dim to hidden_dim
+        self.input_proj = nn.Linear(token_dim, hidden_dim)
+        
+        # xLSTM (from NX-AI)
+        self.xlstm = xLSTMBlockStack(cfg)
+        
+        # Predict output_len steps per node
+        self.output_proj = nn.Linear(hidden_dim, max_length * output_len)
+
+    def forward(self, x):
+        # x shape: (B, max_length, token_dim)
+        B = x.shape[0]
+        
+        # Project tokens to hidden_dim
+        x = self.input_proj(x)  # -> (B, max_length, H)
+        
+        # Process with xLSTM
+        x = self.xlstm(x)       # -> (B, max_length, H)
+        
+        # Use last timestep (or mean/max pooling)
+        x = x[:, -1, :]         # -> (B, H)
+        
+        # Predict output_len steps per node
+        x = self.output_proj(x)  # -> (B, max_length * output_len)
+        
+        # Reshape to (B, output_len, max_length)
+        return x.view(B, self.output_len, self.max_length)
+    
+import torch
+import torch.nn as nn
+from torch_geometric.nn import GATConv
+
+class xLSTMForecast(nn.Module):
+    def __init__(self, token_dim, max_length, output_len, hidden_dim, cfg, 
+                 dropout=0.15, device="cuda", dtype=torch.float32):
+        super().__init__()
+        self.token_dim = token_dim
+        self.max_length = max_length
+        self.hidden_dim = hidden_dim
+        self.output_len = output_len
+        self.device = device
+        self.dtype = dtype
+
+        # Graph Attention Network (GAT)
+        self.gat = GATConv(
+            in_channels=token_dim,
+            out_channels=hidden_dim,
+            heads=3,
+            dropout=dropout,
+            edge_dim=1,
+            add_self_loops=True  # Recommended for GAT
+        ).to(dtype=dtype)
+
+        # XLSTM Block Stack
+        self.xlstm = xLSTMBlockStack(cfg).to(dtype=dtype)
+
+        # Output projection
+        self.output_proj = nn.Linear(
+            hidden_dim, 
+            output_len * max_length
+        ).to(dtype=dtype)
+
+        # Ensure all parameters are on correct device and dtype
+        self.to(device=device, dtype=dtype)
+
+    def forward(self, x, edge_index, edge_attr=None):
+                # Validate input dtype
+        if x.dtype != self.dtype:
+            x = x.to(dtype=self.dtype)
+        if edge_attr is not None and edge_attr.dtype != self.dtype:
+            edge_attr = edge_attr.to(dtype=self.dtype)
+
+        """
+        Args:
+            x: Tokenized input (B, max_length, token_dim)
+            edge_index: Graph connections (2, num_edges)
+            edge_attr: Edge weights (num_edges,) or None
+        """
+        B, T, N = x.shape  # Batch, max_length, token_dim
+
+        # Reshape for GAT: Merge batch and sequence dimensions
+        x_flat = x.view(B * T, N)  # (B * max_length, token_dim)
+
+        # Process graph structure
+        x_gat = self.gat(x_flat, edge_index, edge_attr)  # (B * max_length, hidden_dim)
+        x_gat = x_gat.view(B, T, self.hidden_dim)  # (B, max_length, hidden_dim)
+
+        # Temporal processing with XLSTM
+        x_lstm = self.xlstm(x_gat)  # (B, max_length, hidden_dim)
+
+        # Predict output_len steps per node
+        x_out = self.output_proj(x_lstm[:, -1, :])  # (B, output_len * max_length)
+        return x_out.view(B, self.output_len, self.max_length)  # (B, output_len, max_length)
+    
+    def to(self, *args, **kwargs):
+      """Override to ensure consistent device/dtype handling"""
+      self = super().to(*args, **kwargs)
+      # Update device/dtype attributes if specified
+      for arg in args:
+          if isinstance(arg, torch.dtype):
+              self.dtype = arg
+          elif isinstance(arg, (str, torch.device)):
+              self.device = arg if isinstance(arg, str) else arg.type
+      return self

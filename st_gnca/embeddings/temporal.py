@@ -111,7 +111,7 @@ class SinusoidalTemporalEncoding(nn.Module):
         for date in dates:
             tmp_dict[datetime_to_str(date)] = self.forward(date)
             self.length += 1
-            # print(tmp_dict[datetime_to_str(date)].shape)
+        # print(f'shape of a temporal embedding for {datetime_to_str(dates[0])}: {tmp_dict[datetime_to_str(dates[0])].shape}')
         self.embeddings : TensorDict = TensorDict(tmp_dict)
 
     def forward(self, dt, d_model=4):

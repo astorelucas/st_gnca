@@ -18,6 +18,9 @@ from st_gnca.datasets.PEMS import PEMSBase
 from st_gnca.globalmodel.gnca import get_timestamp
 from st_gnca.embeddings.temporal import from_datetime_to_pd, from_pd_to_datetime, \
   datetime_to_str
+from st_gnca.embeddings.value import ScalingTransform, build_scaler
+
+from st_gnca.datasets.datasets import collate_fn
 
 
 class FineTunningDataset(Dataset):
@@ -113,9 +116,8 @@ class FineTunningDataset(Dataset):
     self.pems = self.pems.to(*args, **kwargs)
     return self
 
-
-
-def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
+def finetune_step(DEVICE, train, test, model, loss, mape, optim, scaler, **kwargs):
+  # print(f"oi1")  # Debugging line to check keys in X
 
   iterations = kwargs.get('iterations',1)
   increment_type = kwargs.get('increment_type','minute')
@@ -123,6 +125,8 @@ def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
   batch = kwargs.get('batch',10)
 
   model.train()
+  # print(f"oi3")  # Debugging line to check keys in X  
+
 
   errors = []
   mapes = []
@@ -131,28 +135,50 @@ def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
   #  map = torch.tensor([0], dtype=model.dtype, device=model.device)
   for X, y in tqdm(train, desc="Training batches", total=len(train)):   
     optim.zero_grad()
-
-    #X = X.to(DEVICE)
-    #y = y.to(DEVICE)
+    i = 0
+    # X = X.to(DEVICE)
+    # y = y.to(DEVICE)
 
     y_pred = model.batch_run(initial_states = X, iterations = iterations,
                       increment = increment, increment_type = increment_type)
+    print(f"Finished batch run {i}") 
+    
+    y_pred = scaler.denormalize(y_pred)
 
     error = loss(y.squeeze(), y_pred.squeeze())
     map = mape(y.squeeze(), y_pred.squeeze())
 
+    print("y_pred shape:", y_pred.shape, "y shape:", y.shape)
+    print("error shape:", error.shape, "error value:", error)
+    print("y_pred device:", y_pred.device, "y device:", y.device, "error device:", error.device)
+    print(f"Finished loss and mape {i}")
+
+    print("y_pred (sample):", y_pred.flatten()[:10])
+    print("y (sample):", y.flatten()[:10])
+
+    print("Any NaN in y_pred?", torch.isnan(y_pred).any().item())
+    print("Any NaN in y?", torch.isnan(y).any().item())
+
+    print("y_pred min/max:", y_pred.min().item(), y_pred.max().item())
+    print("y min/max:", y.min().item(), y.max().item())
+    
     error.backward()
+    print(f"Finished backward {i}")
     optim.step()
+    print(f"Finished optim step {i}")
+    
+    print(f"Batch {i} - Error: {error.cpu().item()} - MAPE: {map.cpu().item()}")
 
     # Grava as métricas de avaliação
     errors.append(error.cpu().item())
     mapes.append(map.cpu().item())
+    i+= 1
 
 
   ##################
   # VALIDATION
   ##################
-
+  print("Validating model...")
   model.eval()
 
   errors_val = []
@@ -177,25 +203,77 @@ def finetune_step(DEVICE, train, test, model, loss, mape, optim, **kwargs):
 
   return errors, mapes, errors_val, mapes_val
 
-# finetune_loop(DEVICE, 
-#               finetune_ds,
-#               gca, 
-#               iterations = 12, 
-#               increment_type='minutes',
-#               increment=5,
-#               epochs = NUM_EPOCHS, 
-#               batch = BATCH_SIZE, 
-#               lr = LEARNING_RATE,
-#               optimizer = optim.AdamW(gca.parameters(), lr=LEARNING_RATE, weight_decay=0.0005)
-#               )
+def finetune_step2(DEVICE, train, val, edge_index, edge_attr, model, loss, mape, optim, scaler, **kwargs):
 
-# finetune_ds = FineTunningDataset(
-#                       pems, 
-#                       increment_type='hours', 
-#                       increment=1, 
-#                       steps_ahead=1, 
-#                       step=250, 
-#                       train = 0.7)
+    model.train()
+    errors, mapes = [], []
+    
+    # Training Loop
+    for X_raw, y_raw in tqdm(train, desc="Training batches", total=len(train)):
+        optim.zero_grad()
+      
+        # 2. Forward pass (replaces batch_run)
+        y_pred = model.batch_run2(X_raw, edge_index, edge_attr, device=DEVICE)  # (B, output_len, max_length)
+
+        # 3. Handle denormalization if needed
+        if scaler:
+            y_pred = scaler.denormalize(y_pred)
+            y_true = scaler.denormalize(y_raw)
+        else:
+            y_true = y_raw
+
+        # 4. Calculate loss - adjust squeezing based on your shapes
+        error = loss(y_true.squeeze(), y_pred.squeeze())
+        current_mape = mape(y_true.squeeze(), y_pred.squeeze())
+        
+        # 5. Backpropagation with gradient scaling if using AMP
+        # Backpropagation
+        if scaler:  # Mixed precision (AMP)
+            scaler.scale(error).backward()
+            
+            # --- Gradient Clipping ADDED HERE ---
+            scaler.unscale_(optim)  # Unscale gradients before clipping (critical for AMP)
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                max_norm=1.0,       # Adjust based on your needs
+                norm_type=2.0       # L2 norm (default)
+            )
+            
+            scaler.step(optim)     # Step with scaled gradients
+            scaler.update()
+        else:
+            error.backward()
+            # --- Gradient Clipping for FP32 ---
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optim.step()
+
+        errors.append(error.detach().cpu().item())
+        mapes.append(current_mape.detach().cpu().item())
+
+    # Validation Loop
+    print("Validating model...")
+    model.eval()
+    errors_val, mapes_val = [], []
+    
+    with torch.no_grad():
+        for X_raw, y_raw in tqdm(val, desc="Validating batches", total=len(val)):
+            # Tokenize validation batch
+
+            y_pred = model.batch_run2(X_raw, edge_index, edge_attr, device=DEVICE)  # (B, output_len, max_length)
+                        
+            if scaler:
+                y_pred = scaler.denormalize(y_pred)
+                y_true = scaler.denormalize(y_raw)
+            else:
+                y_true = y_raw
+
+            error_val = loss(y_true.squeeze(), y_pred.squeeze())
+            map_val = mape(y_true.squeeze(), y_pred.squeeze())
+
+            errors_val.append(error_val.cpu().item())
+            mapes_val.append(map_val.cpu().item())
+
+    return errors, mapes, errors_val, mapes_val
 
 def finetune_loop(DEVICE, dataset, model, display = None, **kwargs):
 
@@ -213,7 +291,14 @@ def finetune_loop(DEVICE, dataset, model, display = None, **kwargs):
   epochs = kwargs.get('epochs', 10)
   lr = kwargs.get('lr', 0.001)
   optimizer = kwargs.get('optim', optim.Adam(model.parameters(), lr=lr, weight_decay=0.0005))
-
+  
+  # Build scaler from all y in training set
+  ys = []
+  for _, y in dataset.train():
+      ys.append(y.cpu().numpy() if hasattr(y, 'cpu') else y)
+  ys = np.stack(ys)
+  scaler = ScalingTransform(ys, device=DEVICE)
+  
   train_ldr = DataLoader(dataset.train(), batch_size=batch_size, shuffle=True)
   test_ldr = DataLoader(dataset.test(), batch_size=batch_size, shuffle=True)
 
@@ -232,10 +317,10 @@ def finetune_loop(DEVICE, dataset, model, display = None, **kwargs):
 
   for epoch in range(epochs): 
     print(f"Epoch {epoch+1}/{epochs}")
-    checkpoint(model, checkpoint_file)
+    # checkpoint(model, checkpoint_file)
 
     errors_train, map_train, errors_val, map_val = finetune_step(DEVICE, train_ldr, test_ldr, 
-                                                                 model, loss, mape, optimizer, **kwargs)
+                                                                 model, loss, mape, optimizer, scaler,**kwargs)
 
     error_train.append(np.median(errors_train))
     mape_train.append(np.median(map_train))
@@ -270,3 +355,105 @@ def finetune_loop(DEVICE, dataset, model, display = None, **kwargs):
   plt.savefig(checkpoint_file+".pdf", dpi=150)
 
   checkpoint(model, checkpoint_file)
+
+def finetune_loop2(DEVICE, dataset, model, display=None, **kwargs):
+  model = model.to(DEVICE)
+
+  train_ds, val_ds, test_ds = dataset
+
+  # Initialize display if not provided
+  if display is None:
+      from IPython import display
+
+  # Get parameters from kwargs with defaults
+  checkpoint_file = kwargs.get('checkpoint_file', 'modelo.pt')
+  batch_size = kwargs.get('batch', 10)
+  epochs = kwargs.get('epochs', 10)
+  lr = kwargs.get('lr', 0.001)
+  
+  # Initialize optimizer - fixed typo in weight_decay
+  optimizer = kwargs.get('optim', optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5))
+  
+  # Create figure for plotting
+  fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+
+  # Build scaler from training data
+  print("2.1 - Build scaler from training data...")
+  scaler = build_scaler(train_ds, device=DEVICE, sample_size=50_000)
+
+
+  # # Create data loaders
+  # train_ldr = DataLoader(dataset.train(), batch_size=batch_size, shuffle=True)
+  # test_ldr = DataLoader(dataset.test(), batch_size=batch_size, shuffle=False)  # Typically don't shuffle test data
+
+
+  # Define loss functions
+  loss = nn.MSELoss()
+  mape = SMAPE  # Make sure SMAPE is properly defined
+
+  # Initialize tracking variables
+  error_train = []
+  mape_train = []
+  error_val = []
+  mape_val = []
+  best = np.inf
+  start_time = time.time()
+
+  # Create dataloaders
+  print("2.2 - Creating DataLoaders...")
+  train_loader = DataLoader(train_ds, batch_size=512, shuffle=True, collate_fn=collate_fn)
+  val_loader = DataLoader(val_ds, batch_size=512, shuffle=False, collate_fn=collate_fn)
+  test_loader = DataLoader(test_ds, batch_size=512, shuffle=False, collate_fn=collate_fn)
+
+  # Get graph data (same for all splits)
+  edge_index, edge_attr = train_ds.get_graph_data()
+
+  for epoch in range(epochs):
+      print(f"Epoch {epoch+1}/{epochs}")
+      
+      # Training and validation
+      errors_train, map_train, errors_val, map_val = finetune_step2(
+          DEVICE, train_loader, val_loader, edge_index, edge_attr ,
+          model, loss, mape, optimizer, scaler, **kwargs
+      )
+
+      # Store median metrics
+      error_train.append(np.median(errors_train))
+      mape_train.append(np.median(map_train))
+      error_val.append(np.median(errors_val))
+      current_mape = np.median(map_val)
+      mape_val.append(current_mape)
+
+      # Save best model
+      if current_mape < best:
+          checkpoint(model, checkpoint_file+'_BEST')
+          best = current_mape
+
+      # Update plots
+      display.clear_output(wait=True)
+      for i, (data, color, label) in enumerate(zip(
+          [(error_train, error_val), 
+          (error_train[-20:], error_val[-20:]), 
+          (mape_train[-20:], mape_val[-20:])],
+          ['blue', 'red'],
+          ['Train', 'Test']
+      )):
+          ax[i].clear()
+          ax[i].plot(data[0], c='blue', label='Train')
+          ax[i].plot(data[1], c='red', label='Test')
+          ax[i].legend(loc='upper left')
+          titles = [
+              "LOSS - All Epochs {} - Time: {} s".format(epoch, round(time.time() - start_time, 0)),
+              "LOSS - Last 20 Epochs",
+              "MAPE - Last 20 Epochs"
+          ]
+          ax[i].set_title(titles[i])
+      
+      plt.tight_layout()
+      display.display(plt.gcf())
+
+  # Save final model and plot
+  plt.savefig(checkpoint_file+".pdf", dpi=150)
+  checkpoint(model, checkpoint_file)
+
+  return error_train, mape_train, error_val, mape_val

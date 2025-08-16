@@ -48,11 +48,14 @@ class NeighborhoodTokenizer(nn.Module):
   
   
   def tokenize(self, timestamp, values, node):
+    # print(f'Tokenizing {node} at {timestamp}')
+    # print(f'Value: {values[str(node)]}')
     val = self.value_embedder(values[str(node)])
     
     tim_emb = self.temporal_embedding(timestamp).to(self.device)
     tokens = self.spatial_embedding[node].to(self.device)
     
+    # print(f'{tokens.shape} {val.shape} {tim_emb.shape}')
     tokens = torch.hstack([tokens, val ])
     tokens = torch.hstack([tokens, tim_emb])
 
@@ -71,14 +74,11 @@ class NeighborhoodTokenizer(nn.Module):
     # print(f"Tokenized {node} with {m} neighbors into shape {tokens.shape}")
     return tokens
   
-  # Create an empty sequence of tokens (filled with -1)
-  # Then extracts the data for a sensor and its neighbors and fill the values
-  # in the tokens, together with the spatial and temporal embeddings
   def tokenize_all(self, data, sensor):
 
     tmp = self.embedded_data(data, sensor)
     n = len(tmp)
-    tim_emb = self.temporal_embedding.all().reshape(n,2)
+    tim_emb = self.temporal_embedding.all().reshape(n,4).to(self.device)
     
     tokens = self.spatial_embedding[sensor].repeat(n,1)
     tokens = torch.hstack([tokens, tmp.reshape(n,1) ])
@@ -86,18 +86,17 @@ class NeighborhoodTokenizer(nn.Module):
     
     m = 1
 
-    for neighbor in self.graph.neighbors(sensor):
+    for neighbor in self.graph.neighbors(int(sensor)):
       m += 1
       tokens = torch.hstack([tokens, self.spatial_embedding[neighbor].repeat(n,1)])
       tokens = torch.hstack([tokens, self.embedded_data(data, neighbor).reshape(n,1) ])
       tokens = torch.hstack([tokens, tim_emb])
 
-    tokens = tokens.reshape(n, m, self.token_dim)
-
-
     tokens = torch.hstack([tokens, torch.full((n,  self.max_length - m, self.token_dim), self.NULL_SYMBOL,
                                               dtype=self.dtype, device = self.device)])
-
+    # I want an example of a tokenized sample
+    # print(f"Tokenized all for {sensor} with shape {tokens[0, :, :].shape}")
+    # print(f"Tokenized all for {sensor} with first token {tokens[0, 0, :]}")
     return tokens
 
   def tokenize_sample(self, data, node, index):
@@ -146,3 +145,57 @@ class NeighborhoodTokenizer(nn.Module):
     self.spatial_embedding = self.spatial_embedding.to(*args, **kwargs)
     self.temporal_embedding = self.temporal_embedding.to(*args, **kwargs)
     return self
+  
+  def tokenize_batch(self, batch_data, device="cuda"):
+    """
+    Tokenize a batch of samples and prepare graph edges.
+    
+    Args:
+        batch_data: List of tuples (timestamp, values_dict, node_id)
+        device: Target device for tensors
+    
+    Returns:
+        batch_tokens: Tensor of shape (B, max_length, token_dim)
+        edge_index: Graph connectivity (2, num_edges)
+        edge_attr: Optional edge weights (num_edges,)
+    """
+    batch_tokens = []
+    edge_indices = []
+    edge_attrs = []
+    
+    # 1. Tokenize all samples in batch
+    for timestamp, values, node in batch_data:
+        # Tokenize main node and neighbors
+        tokens = self.tokenize(timestamp, values, node)  # (1, max_length, token_dim)
+        batch_tokens.append(tokens)
+        
+        # 2. Build edges for this sample's neighborhood
+        neighbors = list(self.graph.neighbors(node))
+        num_neighbors = len(neighbors)
+        
+        # Edge indices: [main -> neighbors]
+        src = torch.zeros(num_neighbors, dtype=torch.long)  # Main node is index 0
+        dst = torch.arange(1, num_neighbors + 1)  # Neighbors are 1..N
+        sample_edges = torch.stack([src, dst])  # (2, num_neighbors)
+        
+        # Optional edge attributes (e.g., inverse distance)
+        sample_edge_attr = torch.ones(num_neighbors) * 0.8  # Dummy weights
+        
+        edge_indices.append(sample_edges)
+        edge_attrs.append(sample_edge_attr)
+    
+    # 3. Stack batch elements
+    batch_tokens = torch.cat(batch_tokens, dim=0).to(device)  # (B, max_length, token_dim)
+    
+    # 4. Build global edge_index (accounting for batch offsets)
+    edge_index = []
+    edge_attr = []
+    for batch_idx, (sample_edges, sample_attr) in enumerate(zip(edge_indices, edge_attrs)):
+        offset = batch_idx * self.max_length
+        edge_index.append(sample_edges + offset)
+        edge_attr.append(sample_attr)
+    
+    edge_index = torch.cat(edge_index, dim=1).to(device)  # (2, total_edges)
+    edge_attr = torch.cat(edge_attrs).to(device) if edge_attrs[0] is not None else None
+    
+    return batch_tokens, edge_index, edge_attr

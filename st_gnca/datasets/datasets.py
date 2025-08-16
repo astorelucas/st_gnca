@@ -25,6 +25,20 @@ def self_supervised_transform(x, token_dim, max_length,value_index,NULL_SYMBOL,d
     # Introduce random noise
     x[:,value_index] = x[:,value_index] + torch.randn(max_length, dtype = dtype, device=device)/12
   return x
+
+def collate_fn(batch):
+    """Custom collate function to handle our data structure"""
+    X_batch = []
+    y_batch = []
+    
+    for X, y in batch:
+        X_batch.append(X)
+        y_batch.append(y)
+    
+    # Stack y values
+    y_batch = torch.stack(y_batch)
+    
+    return X_batch, y_batch
   
 
 class SensorDataset(Dataset):
@@ -97,7 +111,7 @@ class SensorDataset(Dataset):
       yield self[ix]
 
   def __str__(self):
-    return "Dataset {}: {} attributes {} samples".format(self.name, self.num_attributes, self.num_samples)
+    return "Dataset {}: {} features {} samples".format(self.name, self.num_features, self.num_samples)
   
   def to(self, *args, **kwargs):
     if isinstance(args[0], str):
