@@ -9,3 +9,4 @@ tensordict>=0.8.0
 scikit-learn>=1.6.0
 xlstm>=2.0.0
 mlstm_kernels>=2.0.0
+torch_geometric>=2.3.0

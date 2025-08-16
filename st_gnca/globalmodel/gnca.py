@@ -97,30 +97,48 @@ class GraphCellularAutomata(nn.Module):
 
     self.cell_model : nn.Module = kwargs.get('cell_model',None)
 
+  # def build_state(self, date, states) -> TensorDict:
+  #   state = {'timestamp': date}
+  #   for ix, node in enumerate(self.nodes):
+  #     state[str(node)] = states[ix]
+  #   return TensorDict(state)
+  
   def build_state(self, date, states) -> TensorDict:
     state = {'timestamp': date}
+    # states: [1, 1, num_nodes]
+    node_values = states[0, 0, :]  # shape: [num_nodes]
     for ix, node in enumerate(self.nodes):
-      state[str(node)] = states[ix]
+        state[str(node)] = node_values[ix].item()
     return TensorDict(state)
 
   # For fine-tunning
   def forward(self, sequences, **kwargs):
+    print(f'sequences shape - {sequences.shape}') # I would excect [barc]
+    sequences = sequences.unsqueeze(0) # Add batch dimension
     return self.cell_model.forward(sequences)
   
   def step(self, timestamp, current_state):
     tokens = torch.empty(self.num_nodes, self.max_length, self.token_dim, dtype=torch.float32, device=self.device)
     # print(f"Tokens matriz size {tokens.shape} for {self.num_nodes} nodes with max length {self.max_length} and token size {self.token_dim}")
+    # print(f" self.nodes: {self.nodes}")
     for ix, node in enumerate(self.nodes):
       tokens[ix, :, :] = self.tokenizer.tokenize(timestamp, current_state, node) #ta construindo uma matriz de tokens, pra cada nó
+    # print(f'tokens shape - {tokens.shape}')
+    # print(f'token 0 - {tokens[0, :, :]}')  # Debugging line to check the first token
     return self.forward(tokens) 
   
   def batch_run(self, initial_states, iterations, increment, increment_type='minute', **kwargs) -> torch.Tensor:
-    # print(f"Running batch with {len(initial_states['timestamp'])} initial states.")
+    # print(f"Running batch with {len(initial_states['timestamp'])} initial states.") # len(initial_states['timestamp']) == 512 (batch size)
     batch = len(initial_states['timestamp'])
-    state_history = torch.zeros(batch, self.num_nodes, dtype=torch.float32, device=self.device)
+    state_history = torch.zeros(batch, self.num_nodes, dtype=torch.float32, device=self.device) # (512, 358)
+    # print(f'state_history shape - {state_history.shape}')
     for ix in range(batch):
+      print(f'Processing sample {ix}/{batch}')
       initial_state = TensorDict({key : initial_states[key][ix] for key in initial_states.keys()})
       initial_date = str_to_datetime(initial_state['timestamp'])
+      # print(f'Initial date for sample {ix}: {initial_date}')  # #2018-09-25 23:15:00 - changes every run
+      # print(f'Initial state for sample {ix}: {initial_state}')  # {'timestamp': '2018-09-25 23:15:00', 'sensor_0': 0.0, ...}
+      # print(f'Initial state shape for sample {ix}: {initial_state.shape}')  # torch.Size([])
       state_history[ix, :] = self.run(initial_date, initial_state, iterations, 
                                       increment, increment_type, return_type='tensor', 
                                       **kwargs)
@@ -138,20 +156,27 @@ class GraphCellularAutomata(nn.Module):
     
     return_type = kwargs.get('return_type','tensordict')
     current_state = TensorDict(initial_state)
+    # print(f'current_state shape: {current_state.shape}')
+    # for key, value in current_state.items():
+    #   print(f"{key}: {value.shape}")
     if return_type == 'tensordict':
       state_history = []
     else:
       state_history = torch.empty(self.num_nodes, dtype=torch.float32, device=self.device) 
+    
     for ix, ts in enumerate(timestamp_generator(initial_date, iterations, increment_type, increment), start=0):
-      # print(f'Running iteration {ix+1}/{iterations} at {ts}')
+      # print(f'Running iteration {ix}/{iterations} at {ts}')
       result = self.step(ts, current_state) # manda 
+      # print(f'Result shape: {result.shape}')  # torch.Size([358, 1, 358])
       new_state = self.build_state(ts, result) 
+      # print(f'New state shape: {new_state.shape}')  # torch.Size([])
       current_state = new_state
 
       if return_type == 'tensordict':
         state_history.append(new_state)
       else:
         state_history = result.flatten()
+        # print(f'State history shape --> {state_history.shape}')  # torch.Size([358, 1, 358]) -> torch.Size([358])
 
     # print("Finished running all iterations, returning state_history.")
     return state_history
@@ -173,5 +198,16 @@ class GraphCellularAutomata(nn.Module):
   
   def parameters(self, recurse: bool = True):
     return self.cell_model.parameters(recurse)
+  
+  def batch_run2(self, X_raw, edge_index, edge_attr, device):
+    """
+    Run the model on a batch of tokens, edge indices, and edge attributes.
+    This is a more efficient version for batch processing.
+    """
+    # 1. Tokenize batch and prepare graph structure
+    batch_tokens, _, _ = self.tokenizer.tokenize_batch(X_raw, device=device)
+    
+    y_pred = self.cell_model.model(batch_tokens, edge_index, edge_attr)  # (B, output_len, max_length)
+    return y_pred
 
     

@@ -2,6 +2,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
+import pandas as pd
+import torch
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from collections import OrderedDict
 
 import torch
 
@@ -45,8 +50,9 @@ class PEMSBase:
       self.data['timestamp'] = to_pandas_datetime(self.data['timestamp'].values)
 
       self.value_embedder = ValueEmbedding(torch.tensor(self.data[self.data.columns[1:]].values,
-                                                dtype=self.dtype, device=self.device),
-                                                **kwargs)
+                                                        dtype=self.dtype, device=self.device),
+                                                        value_embedding_type='scaling',
+                                                        **kwargs)
 
       self.latlon = kwargs.get("latlon",True)
 
@@ -137,7 +143,13 @@ class PEMSBase:
     # and the expected values for t+y (y)
     def get_sensor_dataset(self, sensor, train = 0.7, dtype = torch.float64, **kwargs):
       X = self.tokenizer.tokenize_all(self.data, sensor)[:-self.steps_ahead]
+      #whats the size of the X?
+      print(f"Size of X for sensor {sensor}: {X.shape}")
+      #can i get a sample of the X?
+      print(f'Sample of X for sensor {sensor}: {X[0]}')
       y = torch.tensor(self.data[str(sensor)].values[self.steps_ahead:], dtype=self.dtype, device=self.device)
+      print(f'Size of y for sensor {sensor}: {y.shape}')
+      print(f'Sample of y for sensor {sensor}: {y[0]}')
       return SensorDataset(str(sensor),X,y,train, dtype, num_features = self.num_sensors,
                            max_length=self.max_length, token_dim=self.token_dim,
                            value_index=self.value_index, **kwargs)
@@ -199,6 +211,106 @@ class PEMSBase:
       else:
         self.dtype = args[0]
       return self
+    
+class PEMSDataset(Dataset):
+    def __init__(self, data_path, edges_path, nodes_path, 
+                 input_len=12, output_len=12,
+                 device="cpu"):
+        """Base dataset that handles all data loading"""
+        # Load all data files
+        self.full_data = pd.read_csv(data_path, parse_dates=['timestamp'], sep=',')
+        self.edges = pd.read_csv(edges_path)
+        self.nodes = pd.read_csv(nodes_path)
+        
+        # Process graph structure
+        self.edge_index = torch.tensor(self.edges[['source', 'target']].values.T, dtype=torch.long)
+        self.edge_attr = torch.tensor(self.edges['weight'].values, dtype=torch.float32)
+        
+        # Get sensor list
+        self.sensor_nodes = sorted([int(col) for col in self.full_data.columns if col != 'timestamp'])
+
+        self.num_nodes = len(self.sensor_nodes)
+        
+        # Store parameters
+        self.input_len = input_len
+        self.output_len = output_len
+        self.device = device
+        self.timestamps = sorted(self.full_data['timestamp'].unique())
+        
+        # Will be set during splitting
+        self.split_data = None
+        self.split_timestamps = None
+
+    @classmethod
+    def create_splits(cls, data_path, edges_path, nodes_path, 
+                     input_len=12, output_len=12,
+                     split_ratios=(0.7, 0.2, 0.1),
+                     device="cpu"):
+        """Factory method that returns train/val/test datasets"""
+        full_dataset = cls(data_path, edges_path, nodes_path, 
+                         input_len, output_len, device)
+        
+        # Time-based splitting indices
+        timestamps = full_dataset.timestamps
+        train_end = int(len(timestamps) * split_ratios[0])
+        val_end = train_end + int(len(timestamps) * split_ratios[1])
+        
+        # Create split-specific datasets
+        train_data = cls(data_path, edges_path, nodes_path,
+                        input_len, output_len, device)
+        train_data._set_split(timestamps[:train_end])
+        
+        val_data = cls(data_path, edges_path, nodes_path,
+                      input_len, output_len, device)
+        val_data._set_split(timestamps[train_end:val_end])
+        
+        test_data = cls(data_path, edges_path, nodes_path,
+                       input_len, output_len, device)
+        test_data._set_split(timestamps[val_end:])
+        
+        return train_data, val_data, test_data
+
+    def _set_split(self, split_timestamps):
+        """Internal method to set time range for this split"""
+        self.split_timestamps = split_timestamps
+        self.split_data = self.full_data[
+            self.full_data['timestamp'].isin(split_timestamps)
+        ]
+        self.timestamps = sorted(self.split_data['timestamp'].unique())
+
+    def __len__(self):
+        return len(self.timestamps) - self.input_len - self.output_len + 1
+        
+    def __getitem__(self, idx):
+        # Get input window
+        input_start = idx
+        input_end = input_start + self.input_len
+        input_data = self.split_data.iloc[input_start:input_end]
+        
+        # Get output window
+        output_start = input_end
+        output_end = output_start + self.output_len
+        output_data = self.split_data.iloc[output_start:output_end]
+        
+        # Prepare X (OrderedDict of timestamp -> sensor values)
+        X = OrderedDict()
+        for ts in input_data['timestamp']:
+            ts_str = str(ts)
+            X[ts_str] = OrderedDict()
+            for node in self.sensor_nodes:
+                X[ts_str][str(node)] = input_data.loc[input_data['timestamp'] == ts, f'{node}'].values[0]
+        
+        # Prepare y (tensor of future values)
+        y = torch.zeros((self.output_len, self.num_nodes), dtype=torch.float32)
+        for i, ts in enumerate(output_data['timestamp']):
+            for j, node in enumerate(self.sensor_nodes):
+                y[i,j] = output_data.loc[output_data['timestamp'] == ts, f'{node}'].values[0]
+        
+        return X, y.to(self.device)
+
+    def get_graph_data(self):
+        """Returns edge_index and edge_attr for the whole graph"""
+        return self.edge_index.to(self.device), self.edge_attr.to(self.device)
 
 
 class PEMS03(PEMSBase):
