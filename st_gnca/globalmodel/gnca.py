@@ -205,9 +205,9 @@ class GraphCellularAutomata(nn.Module):
     This is a more efficient version for batch processing.
     """
     # 1. Tokenize batch and prepare graph structure
-    batch_tokens, _, _ = self.tokenizer.tokenize_batch(X_raw, device=device)
+    batch_tokens, _, _ = self.tokenizer.tokenize_batch(X_batch=X_raw, device=device)
     
-    y_pred = self.cell_model.model(batch_tokens, edge_index, edge_attr)  # (B, output_len, max_length)
+    y_pred = self.cell_model(batch_tokens, edge_index, edge_attr)  # (B, output_len, max_length)
     return y_pred
 
     

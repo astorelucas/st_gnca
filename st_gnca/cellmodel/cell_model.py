@@ -330,13 +330,13 @@ class xLSTMForecast(nn.Module):
 
         # Graph Attention Network (GAT)
         self.gat = GATConv(
-            in_channels=token_dim,
-            out_channels=hidden_dim,
-            heads=3,
-            dropout=dropout,
-            edge_dim=1,
-            add_self_loops=True  # Recommended for GAT
-        ).to(dtype=dtype)
+            in_channels=9,  # token_dim
+            out_channels=32,  # 128/4 heads = 32
+            heads=4,  # 4 × 32 = 128
+            concat=True,
+            dropout=0.15,
+            edge_dim=1
+        )
 
         # XLSTM Block Stack
         self.xlstm = xLSTMBlockStack(cfg).to(dtype=dtype)
@@ -351,33 +351,35 @@ class xLSTMForecast(nn.Module):
         self.to(device=device, dtype=dtype)
 
     def forward(self, x, edge_index, edge_attr=None):
-                # Validate input dtype
+        # Validate input dtype
         if x.dtype != self.dtype:
             x = x.to(dtype=self.dtype)
         if edge_attr is not None and edge_attr.dtype != self.dtype:
             edge_attr = edge_attr.to(dtype=self.dtype)
+        
+        B, T, N = x.shape  # Batch, Timesteps, Node features
 
-        """
-        Args:
-            x: Tokenized input (B, max_length, token_dim)
-            edge_index: Graph connections (2, num_edges)
-            edge_attr: Edge weights (num_edges,) or None
-        """
-        B, T, N = x.shape  # Batch, max_length, token_dim
-
-        # Reshape for GAT: Merge batch and sequence dimensions
-        x_flat = x.view(B * T, N)  # (B * max_length, token_dim)
-
-        # Process graph structure
-        x_gat = self.gat(x_flat, edge_index, edge_attr)  # (B * max_length, hidden_dim)
-        x_gat = x_gat.view(B, T, self.hidden_dim)  # (B, max_length, hidden_dim)
-
-        # Temporal processing with XLSTM
-        x_lstm = self.xlstm(x_gat)  # (B, max_length, hidden_dim)
-
-        # Predict output_len steps per node
-        x_out = self.output_proj(x_lstm[:, -1, :])  # (B, output_len * max_length)
-        return x_out.view(B, self.output_len, self.max_length)  # (B, output_len, max_length)
+        # Flatten spatial-temporal dimensions for GAT
+        x_flat = x.reshape(B * T, N)
+        
+        # Process through GAT - NOW PROPERLY DEFINED
+        x_gat = self.gat(x_flat, edge_index, edge_attr)
+        
+        # Reshape back with dimension validation
+        try:
+            x_gat = x_gat.reshape(B, T, -1)
+            if x_gat.shape[-1] != self.hidden_dim:
+                raise ValueError(f"GAT output dim {x_gat.shape[-1]} != hidden_dim {self.hidden_dim}")
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"Reshape failed from {x_gat.shape} to [{B}, {T}, -1]. "
+                f"GAT out_channels: {self.gat.out_channels}, heads: {self.gat.heads}"
+            ) from e
+        
+        # Continue with XLSTM
+        x_lstm = self.xlstm(x_gat)
+        output = self.output_proj(x_lstm[:, -1, :])
+        return output.reshape(B, self.output_len, -1)
     
     def to(self, *args, **kwargs):
       """Override to ensure consistent device/dtype handling"""

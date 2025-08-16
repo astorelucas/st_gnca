@@ -46,12 +46,14 @@ class NeighborhoodTokenizer(nn.Module):
 
     return self.value_embedder(value)
   
-  
   def tokenize(self, timestamp, values, node):
     # print(f'Tokenizing {node} at {timestamp}')
     # print(f'Value: {values[str(node)]}')
     val = self.value_embedder(values[str(node)])
-    
+
+    if isinstance(timestamp, str):
+      timestamp = pd.Timestamp(timestamp)
+
     tim_emb = self.temporal_embedding(timestamp).to(self.device)
     tokens = self.spatial_embedding[node].to(self.device)
     
@@ -61,9 +63,10 @@ class NeighborhoodTokenizer(nn.Module):
 
     m = 1
 
-    for neighbor in self.graph.neighbors(node):
+    for neighbor in self.graph.neighbors(int(node)):
       m += 1
       tokens = torch.hstack([tokens, self.spatial_embedding[neighbor]])
+      # print("Neighbor key:", str(neighbor), "Keys in values:", list(values.keys()))
       tokens = torch.hstack([tokens, self.value_embedder(values[str(neighbor)])])
       tokens = torch.hstack([tokens, tim_emb])
 
@@ -146,56 +149,62 @@ class NeighborhoodTokenizer(nn.Module):
     self.temporal_embedding = self.temporal_embedding.to(*args, **kwargs)
     return self
   
-  def tokenize_batch(self, batch_data, device="cuda"):
-    """
-    Tokenize a batch of samples and prepare graph edges.
-    
-    Args:
-        batch_data: List of tuples (timestamp, values_dict, node_id)
-        device: Target device for tensors
-    
-    Returns:
-        batch_tokens: Tensor of shape (B, max_length, token_dim)
-        edge_index: Graph connectivity (2, num_edges)
-        edge_attr: Optional edge weights (num_edges,)
-    """
-    batch_tokens = []
-    edge_indices = []
-    edge_attrs = []
-    
-    # 1. Tokenize all samples in batch
-    for timestamp, values, node in batch_data:
-        # Tokenize main node and neighbors
-        tokens = self.tokenize(timestamp, values, node)  # (1, max_length, token_dim)
-        batch_tokens.append(tokens)
-        
-        # 2. Build edges for this sample's neighborhood
-        neighbors = list(self.graph.neighbors(node))
-        num_neighbors = len(neighbors)
-        
-        # Edge indices: [main -> neighbors]
-        src = torch.zeros(num_neighbors, dtype=torch.long)  # Main node is index 0
-        dst = torch.arange(1, num_neighbors + 1)  # Neighbors are 1..N
-        sample_edges = torch.stack([src, dst])  # (2, num_neighbors)
-        
-        # Optional edge attributes (e.g., inverse distance)
-        sample_edge_attr = torch.ones(num_neighbors) * 0.8  # Dummy weights
-        
-        edge_indices.append(sample_edges)
-        edge_attrs.append(sample_edge_attr)
-    
-    # 3. Stack batch elements
-    batch_tokens = torch.cat(batch_tokens, dim=0).to(device)  # (B, max_length, token_dim)
-    
-    # 4. Build global edge_index (accounting for batch offsets)
-    edge_index = []
-    edge_attr = []
-    for batch_idx, (sample_edges, sample_attr) in enumerate(zip(edge_indices, edge_attrs)):
-        offset = batch_idx * self.max_length
-        edge_index.append(sample_edges + offset)
-        edge_attr.append(sample_attr)
-    
-    edge_index = torch.cat(edge_index, dim=1).to(device)  # (2, total_edges)
-    edge_attr = torch.cat(edge_attrs).to(device) if edge_attrs[0] is not None else None
-    
-    return batch_tokens, edge_index, edge_attr
+  def tokenize_batch(self, X_batch, device="cuda"):
+      """
+      Handles batches from PEMS03 DataLoader where each item is (X_dict, y_tensor)
+      X_dict: {timestamp: {node_id: value}} for multiple timesteps
+      y_tensor: (batch_size, output_len, num_nodes)
+      """
+      batch_tokens = []
+      edge_indices = []
+      edge_attrs = []
+          
+  # First collect all node values for the entire batch
+      batch_values = {}
+      for sample_idx, X_dict in enumerate(X_batch):
+          for timestamp, node_values in X_dict.items():
+              if timestamp not in batch_values:
+                  batch_values[timestamp] = {}
+              batch_values[timestamp].update(node_values)
+      
+      # Process each sample
+      for sample_idx, X_dict in enumerate(X_batch):
+          for timestamp, node_values in X_dict.items():
+              for node_id, value in node_values.items():
+                  # Prepare complete values dictionary with neighbors
+                  values_dict = {str(node_id): float(value)}
+                  
+                  # Add all neighbor values
+                  neighbors = list(self.graph.neighbors(int(node_id)))
+                  for neighbor in neighbors:
+                      neighbor_key = str(neighbor)
+                      if timestamp in batch_values and neighbor_key in batch_values[timestamp]:
+                          values_dict[neighbor_key] = float(batch_values[timestamp][neighbor_key])
+                      else:
+                          # Handle missing neighbor values (critical for your tokenize function)
+                          values_dict[neighbor_key] = 0.0  
+                  
+                  # Tokenize with complete context
+                  tokens = self.tokenize(
+                      timestamp=timestamp,
+                      values=values_dict,  # Must contain node + all neighbors
+                      node=node_id
+                  )
+                  batch_tokens.append(tokens)
+                  
+                  # Build edges (if needed for your model)
+                  if neighbors:
+                      src = torch.zeros(len(neighbors), dtype=torch.long)
+                      dst = torch.arange(1, len(neighbors)+1)
+                      edge_indices.append(torch.stack([src, dst]))
+                      edge_attrs.append(torch.ones(len(neighbors)))  # Or use actual edge weights
+
+      # Stack all batch elements
+      if not batch_tokens:
+          raise ValueError("No tokens generated - check your input data")
+      
+      return (
+          torch.cat(batch_tokens, dim=0).to(device),  # (total_nodes, max_length, token_dim)
+          torch.cat(edge_indices, dim=1).to(device) if edge_indices else None,
+          torch.cat(edge_attrs).to(device) if edge_attrs else None
+      )
