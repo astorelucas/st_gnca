@@ -379,7 +379,8 @@ def finetune_loop2(DEVICE, dataset, model, display=None, **kwargs):
 
   # Build scaler from training data
   print("2.1 - Build scaler from training data...")
-  scaler = build_scaler(train_ds, device=DEVICE, sample_size=50_000)
+  # scaler = build_scaler(train_ds, device=DEVICE, sample_size=50_000)
+  scaler = None
 
 
   # # Create data loaders
