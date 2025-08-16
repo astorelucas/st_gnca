@@ -9,7 +9,7 @@ from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from st_gnca.cellmodel.cell_model import CellModel_LSTM, CellModel, CellModel_xLSTM, xLSTMForecast, save_as, setup
-from st_gnca.finetuning import FineTunningDataset, WindowedForecastDataset, finetune_loop, finetune_loop2
+from st_gnca.finetuning import FineTunningDataset, finetune_loop, finetune_loop2
 from st_gnca.evaluate import evaluate, diff_states
 
 from xlstm import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
