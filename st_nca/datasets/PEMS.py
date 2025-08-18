@@ -86,7 +86,8 @@ class PEMSBase:
       #self.sensors = sorted([k for k in self.G.nodes()])
 
       self.num_samples = len(self.data) - self.steps_ahead
-      self.token_dim = 7
+      self.token_dim = 9 # Each temporal feature now contributes with 2 more values
+      
 
       self.value_index = 4
 

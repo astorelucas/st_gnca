@@ -3,6 +3,40 @@ from torch import nn
 
 from st_nca.common import normalizations
 
+class TorchTransformer(nn.Module):
+    """
+    Adapter around nn.TransformerEncoder that mimics the public interface
+    expected by CellModel.
+    """
+    def __init__(
+        self,
+        num_heads: int,
+        num_tokens: int,          # ignored by nn.Transformer, kept for signature parity
+        dim_token: int,
+        feedforward_dim: int,
+        activation,
+        *,                         # keep kwargs open so CellModel **kwargs works
+        dtype=torch.float32,
+        device=None,
+        **_
+    ):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=dim_token,
+            nhead=num_heads,
+            dim_feedforward=feedforward_dim,
+            activation='gelu',
+            batch_first=True,      # (batch, seq, dim) -> matches CellModel
+            dtype=dtype,
+            device=device,
+        )
+        
+        self.net = nn.TransformerEncoder(encoder_layer, num_layers=1)
+
+    def forward(self, x):
+        # torch’s encoder expects (batch, seq, dim) when batch_first=True, so no permute
+        return self.net(x)
+
 #My own implementation, already tested
 #Original source:  https://github.com/petroniocandido/clshq_tk/blob/main/clshq_tk/modules/attention.py
 

@@ -7,11 +7,19 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
+import wandb
 
 print("Setting up model configuration...")
 # Setup device and data types
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+DEVICE = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+print(DEVICE)
 DTYPE = torch.float32
+
+wandb.init(
+    project="graph-cellular-automata",
+    name="PEMS03-GCA-Run",  
+    
+)
 
 # Define paths
 DEFAULT_PATH = 'st_nca/'
@@ -32,7 +40,7 @@ config = {
     'num_tokens': pems.max_length,
     'dim_token': pems.token_dim,
     'num_transformers': 3,
-    'num_heads': 16,
+    'num_heads': 3,
     'transformer_feed_forward': 1024,
     'transformer_activation': nn.GELU(approximate='none'),
     'normalization': torch.nn.LayerNorm,
@@ -59,7 +67,7 @@ gca = GraphCellularAutomata(
 )
 
 print("Setting up training configuration...")
-BATCH_SIZE = 32
+BATCH_SIZE = 4096 # 1024
 LEARNING_RATE = 0.001
 NUM_EPOCHS = 100
 TRAIN_SPLIT = 0.6
@@ -68,6 +76,7 @@ VALIDATION_SPLIT = 0.2
 
 # Get the dataset for all sensors
 dataset = pems.get_allsensors_dataset()
+print(dataset)
 #dataset = pems.get_sensor_dataset(300, dtype=torch.float32, behavior='deterministic')
 
 print("Splitting dataset...")
@@ -94,13 +103,22 @@ criterion = nn.MSELoss()
 def train_epoch(model, train_loader, optimizer, criterion):
     model.train()
     total_loss = 0
-    for _ , (X, y) in enumerate(tqdm(train_loader, desc="Training")):
+    for batch_idx , (X, y) in enumerate(tqdm(train_loader, desc="Training")):
         optimizer.zero_grad()
         output = model(X)
+        y = y.view(-1, 1)
         loss = criterion(output, y)
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
+        batch_loss = loss.item()
+        total_loss += batch_loss
+
+        if batch_idx % 10 == 0:
+            wandb.log({
+                "batch_train_loss": batch_loss,
+                "epoch": epoch + 1,
+                "batch": batch_idx
+            })
     return total_loss / len(train_loader)
 
 # Validation loop
@@ -110,6 +128,7 @@ def validate(model, val_loader, criterion):
     with torch.no_grad():
         for X, y in tqdm(val_loader, desc="Validation"):
             output = model(X)
+            y = y.view(-1, 1)
             loss = criterion(output, y)
             total_loss += loss.item()
     return total_loss / len(val_loader)
@@ -126,6 +145,13 @@ for epoch in range(NUM_EPOCHS):
     
     train_losses.append(train_loss)
     val_losses.append(val_loss)
+
+    wandb.log({
+        "epoch": epoch + 1,
+        "train_loss": train_loss,
+        "val_loss": val_loss,
+        "lr": optimizer.param_groups[0]["lr"]
+    })
     
     print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
     print(f"Training Loss: {train_loss:.6f}")

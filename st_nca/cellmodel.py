@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from st_nca.modules.transformers import Transformer, get_config as transformer_get_config
+from st_nca.modules.transformers import Transformer, TorchTransformer, get_config as transformer_get_config
 
 from st_nca.modules.moe import SparseMixtureOfExperts
 from st_nca.common import activations, dtypes, get_device
@@ -97,8 +97,7 @@ class CellModel(nn.Module):
     self.use_moe = kwargs.get('use_moe',False)
     
 
-    self.transformers = nn.ModuleList([Transformer(num_heads, self.num_tokens, dim_token, transformer_feed_forward, transformer_activation,
-                         dtype=self.dtype, device=self.device, **kwargs)
+    self.transformers = nn.ModuleList([TorchTransformer(num_heads, self.num_tokens, dim_token, transformer_feed_forward, transformer_activation, dtype=self.dtype, device=self.device, **kwargs)
                          for k in range(num_transformers)])
 
     self.flat = nn.Flatten(1)

@@ -26,14 +26,14 @@ def from_datetime_to_pd(date : datetime):
   #return to_pandas_datetime(np.datetime64(date.astimezone(timezone.utc)))
   return to_pandas_datetime(np.datetime64(date.astimezone(None)))
 
-
 class TemporalEmbedding(nn.Module):
   def __init__(self, dates, **kwargs):
     super().__init__()
     self.device = kwargs.get('device','cpu')
     self.dtype = kwargs.get('dtype',torch.float32)
     self.pi2 = torch.tensor([2 * torch.pi], dtype=self.dtype, device=self.device)
-    self.week_minutes_rads = torch.tensor([(7 * 1440) * self.pi2], dtype=self.dtype, device=self.device)
+    self.day_minutes = torch.tensor([(1440)], dtype=self.dtype, device=self.device )
+    self.week_minutes = torch.tensor([(7 * 1440)], dtype=self.dtype, device=self.device)
     tmp_dict = {}
     self.length = 0
     for date in dates:
@@ -42,19 +42,23 @@ class TemporalEmbedding(nn.Module):
     self.embeddings : TensorDict = TensorDict(tmp_dict) 
 
   def week_embedding(self, date):
-      day_of_week = date.isocalendar()[2]  # Day of week (1: Monday, 7: Sunday)
-      num = torch.tensor([day_of_week * 1440 + date.hour * 60 + date.minute], dtype=self.dtype, device=self.device)
-      return torch.sin(num / self.week_minutes_rads)
+    day_of_week = date.isocalendar()[2]  # Day of week (1: Monday, 7: Sunday)
+    
+    num = torch.tensor([day_of_week * 1440 + date.hour * 60 + date.minute], dtype=self.dtype, device=self.device)
+    angle = num * self.pi2 / self.week_minutes
+    return torch.sin(angle), torch.cos(angle)
 
   def minute_embedding(self, date):
     minute_of_day = torch.tensor([(date.hour * 60 + date.minute)/ 1440], dtype=self.dtype, device=self.device)
-    return torch.sin(minute_of_day * self.pi2)
+    angle = minute_of_day * self.pi2
+    return torch.sin(angle), torch.cos(angle)
   
   def forward(self, dt):
      date = from_pd_to_datetime(dt)
-     we = self.week_embedding(date)
-     me = self.minute_embedding(date)
-     return torch.tensor([we, me], dtype=self.dtype, device=self.device)
+     we_sin, we_cos = self.week_embedding(date)
+     me_sin, me_cos = self.minute_embedding(date)
+     return torch.stack([we_sin, we_cos, me_sin, me_cos]).squeeze()
+
   
   def __getitem__(self, date):
     if isinstance(date, np.datetime64):
@@ -69,8 +73,7 @@ class TemporalEmbedding(nn.Module):
     
   
   def all(self):
-    ret = torch.empty(self.length, 2,
-                        dtype=self.dtype, device=self.device)
+    ret = torch.empty(self.length, 4, dtype=self.dtype, device=self.device)
     for it,emb in enumerate(self.embeddings.values(sort=True)):
       ret[it, :] = emb
     return ret
@@ -82,5 +85,5 @@ class TemporalEmbedding(nn.Module):
     else:
       self.dtype = args[0]
     self.pi2 = self.pi2.to(*args, **kwargs)
-    self.week_minutes_rads = self.week_minutes_rads.to(*args, **kwargs)
+    self.week_minutes = self.week_minutes.to(*args, **kwargs)
     return self
