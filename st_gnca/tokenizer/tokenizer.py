@@ -111,7 +111,7 @@ class NeighborhoodTokenizer(nn.Module):
     elif isinstance(data, TensorDictDataframe):
       dt = data['timestamp', index]
 
-    tim_emb = self.temporal_embedding[dt]
+    tim_emb = self.temporal_embedding[dt].to(self.device)
 
     tokens = self.spatial_embedding[node]
     tokens = torch.hstack([tokens, self.embedded_sample(data, node, index)])

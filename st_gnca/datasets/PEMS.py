@@ -51,7 +51,7 @@ class PEMSBase:
 
       self.value_embedder = ValueEmbedding(torch.tensor(self.data[self.data.columns[1:]].values,
                                                         dtype=self.dtype, device=self.device),
-                                                        value_embedding_type='scaling',
+                                                        # value_embedding_type='scaling',
                                                         **kwargs)
 
       self.latlon = kwargs.get("latlon",True)

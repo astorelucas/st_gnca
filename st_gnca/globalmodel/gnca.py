@@ -113,8 +113,8 @@ class GraphCellularAutomata(nn.Module):
 
   # For fine-tunning
   def forward(self, sequences, **kwargs):
-    print(f'sequences shape - {sequences.shape}') # I would excect [barc]
-    sequences = sequences.unsqueeze(0) # Add batch dimension
+    # print(f'sequences shape - {sequences.shape}') # I would excect [barc]
+    # sequences = sequences.unsqueeze(0) # Add batch dimension
     return self.cell_model.forward(sequences)
   
   def step(self, timestamp, current_state):

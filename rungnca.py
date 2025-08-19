@@ -10,11 +10,19 @@ from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from st_gnca.finetuning import FineTunningDataset, finetune_loop
+import wandb
 
 print("Setting up model configuration...")
 # Setup device and data types
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.float32
+
+wandb.init(
+    project="graph-cellular-automata",
+    name="PEMS03-GCA-Run",  
+    
+)
+
 
 # Define paths
 DEFAULT_PATH = 'st_gnca/'
@@ -40,7 +48,7 @@ config = {
     'num_tokens': pems.max_length,
     'dim_token': pems.token_dim,
     'num_transformers': 3,
-    'num_heads': 8,
+    'num_heads': 3,
     'transformer_feed_forward': 1024,
     'transformer_activation': nn.GELU(approximate='none'),
     'normalization': torch.nn.LayerNorm,
@@ -72,7 +80,7 @@ gca = GraphCellularAutomata(
 print("Setting up training configuration...")
 BATCH_SIZE = 4096
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 5
+NUM_EPOCHS = 100
 TRAIN_SPLIT = 0.6
 VALIDATION_SPLIT = 0.2
 # Test split will be the remaining 0.1
@@ -110,13 +118,21 @@ def train_epoch(model, train_loader, optimizer, criterion):
     model.train()
     total_loss = 0
     print(f'--------{train_loader}------- ') ## --------<class 'torch.utils.data.dataloader.DataLoader'>, 129-------
-    for _ , (X, y) in enumerate(tqdm(train_loader, desc="Training")):
+    for batch_idx , (X, y) in enumerate(tqdm(train_loader, desc="Training")):
         optimizer.zero_grad()
         output = model(X)
         y = y.view(output.shape) 
         loss = criterion(output, y)
         loss.backward()
         optimizer.step()
+
+        if batch_idx % 10 == 0:
+            wandb.log({
+                "batch_train_loss": loss.item(),
+                "epoch": epoch + 1,
+                "batch": batch_idx
+            })
+
         total_loss += loss.item()
     return total_loss / len(train_loader)
 
@@ -154,6 +170,14 @@ for epoch in range(NUM_EPOCHS):
     if DEVICE.type == 'cuda':
         torch.cuda.synchronize()
     epoch_end_time = time.time()
+
+    wandb.log({
+        "epoch": epoch + 1,
+        "train_loss": train_loss,
+        "val_loss": val_loss,
+        "lr": optimizer.param_groups[0]["lr"]
+    })
+
     print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
     print(f"Training Loss: {train_loss:.6f}")
     print(f"Validation Loss: {val_loss:.6f}")
