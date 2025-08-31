@@ -4,6 +4,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 from tensordict import TensorDict
+from datetime import datetime
+import math
 
 def datetime_to_str(dt):
   return dt.strftime("%Y%m%d%H%M%S")
@@ -97,7 +99,7 @@ class TemporalEmbedding(nn.Module):
     return self
 
 
-class SinusoidalTemporalEncoding(nn.Module):
+class SinusoidalTemporalEncoding_old(nn.Module):
     def __init__(self, dates, **kwargs):
         super().__init__()
         # Use user-specified device, else use global DEVICE
@@ -163,4 +165,86 @@ class SinusoidalTemporalEncoding(nn.Module):
             self.dtype = args[0]
         self.pi2 = self.pi2.to(*args, **kwargs)
         return self
+    
+# Helper functions (you probably already have these)
+def datetime_to_str(dt):
+    """Convert datetime to string format"""
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
+def from_np_to_datetime(np_dt):
+    """Convert numpy datetime64 to python datetime"""
+    return pd.Timestamp(np_dt).to_pydatetime()
+
+class SinusoidalTemporalEncoding(nn.Module):
+    def __init__(self, dates, d_model=64, device=None, dtype=torch.float32):
+        super().__init__()
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.dtype = dtype
+        self.d_model = d_model
+        
+        # Store embeddings for all dates
+        tmp_dict = {}
+        for date in dates:
+            tmp_dict[datetime_to_str(date)] = self._compute_encoding(date, d_model)
+        
+        self.embeddings = tmp_dict
+        self.length = len(dates)
+    
+    def _compute_encoding(self, dt, d_model):
+        """
+        Compute sinusoidal encoding for a specific datetime
+        """
+        base_time = pd.Timestamp("2010-01-01 00:00:00")
+        seconds = (dt - base_time).total_seconds()
+        
+        # Create position tensor
+        pos = torch.tensor([seconds], dtype=self.dtype, device=self.device)
+        
+        # Create division term
+        i = torch.arange(d_model // 2, dtype=self.dtype, device=self.device)
+        div_term = torch.exp(i * (-math.log(10000.0) / (d_model // 2)))
+        
+        # Compute sine and cosine parts
+        angle_rads = pos * div_term
+        sin_part = torch.sin(angle_rads)
+        cos_part = torch.cos(angle_rads)
+        
+        # Interleave sine and cosine
+        encoding = torch.zeros(d_model, dtype=self.dtype, device=self.device)
+        encoding[0::2] = sin_part
+        encoding[1::2] = cos_part
+        
+        return encoding
+    
+    def forward(self, date):
+        """
+        Get temporal embedding for a datetime
+        
+        Args:
+            date: datetime object, numpy datetime64, or datetime string
+            
+        Returns:
+            Temporal embedding tensor [d_model]
+        """
+        if isinstance(date, np.datetime64):
+            date = from_np_to_datetime(date)
+            date_str = datetime_to_str(date)
+        elif isinstance(date, datetime):
+            date_str = datetime_to_str(date)
+        elif isinstance(date, str):
+            date_str = pd.Timestamp(date).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            raise ValueError(f"Unsupported date type: {type(date)}")
+        
+        return self.embeddings[date_str]
+    
+    def __getitem__(self, date):
+        return self.forward(date)
+    
+    def all(self):
+        """Get all temporal embeddings as a tensor"""
+        embeddings_list = []
+        for date_str in sorted(self.embeddings.keys()):
+            embeddings_list.append(self.embeddings[date_str])
+        
+        return torch.stack(embeddings_list)  # [num_timesteps, d_model]
