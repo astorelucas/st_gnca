@@ -1,336 +1,253 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.data import Data
+from torch_geometric.utils import get_laplacian
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import networkx as nx
-import pandas as pd
-import torch
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
-from collections import OrderedDict
+from typing import Optional, Tuple, List, Dict
+import os
+from datetime import datetime
 
-import torch
-
-from st_gnca.embeddings.temporal import TemporalEmbedding, SinusoidalTemporalEncoding, to_pandas_datetime
-from st_gnca.embeddings.spatial import SpatialEmbedding
 from st_gnca.embeddings.value import ValueEmbedding
-from st_gnca.tokenizer.tokenizer import NeighborhoodTokenizer
+from st_gnca.embeddings.spatial import SpatialEmbedding
+from st_gnca.embeddings.temporal import SinusoidalTemporalEncoding
 
-from st_gnca.common import TensorDictDataframe
+class GraphTransformer(nn.Module):
+    def __init__(self, num_nodes: int, input_dim: int, embedding_dim: int, 
+                 dates: List[datetime], k: int = 10, device: torch.device = None):
 
-from st_gnca.datasets.datasets import SensorDataset, AllSensorDataset
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-def get_config(pems):
-  return {
-    'steps_ahead': pems.steps_ahead,
-    'value_embedding_type': pems.tokenizer.value_embedder.type
-  }
-
-
-class PEMSBase:
-
-    def __init__(self,**kwargs):
-
-      self.dtype = kwargs.get('dtype',torch.float64)
-      self.device = kwargs.get('device',DEVICE)
-
-      self.steps_ahead = kwargs.get('steps_ahead',1)
-
-      edges = pd.read_csv(kwargs.get('edges_file','edges.csv'), engine='pyarrow')
-
-      # Create the graph
-      self.G=nx.Graph()
-      for row in edges.iterrows():
-        self.G.add_edge(int(row[1]['source']),int(row[1]['target']), weight=row[1]['weight'])
-
-      del(edges)
-
-      self.data = pd.read_csv(kwargs.get('data_file','data.csv'), engine='pyarrow')
-      self.data['timestamp'] = to_pandas_datetime(self.data['timestamp'].values)
-
-      self.value_embedder = ValueEmbedding(torch.tensor(self.data[self.data.columns[1:]].values,
-                                                        dtype=self.dtype, device=self.device),
-                                                        value_embedding_type='scaling',
-                                                        **kwargs)
-
-      self.latlon = kwargs.get("latlon",True)
-
-      if self.latlon:
-
-        laplacian_components = 2
-
-        nodes = pd.read_csv(kwargs.get('nodes_file','nodes.csv'), engine='pyarrow')
-
-        coordinates = {}
-
-        for ix, node in enumerate(self.G.nodes()):
-
-            _, lat, lon = nodes[nodes['sensor'] == node].values[0]
-
-            coordinates[node] = {'lat': lat, 'lon': lon }
-
-        nx.set_node_attributes(self.G, coordinates)
-
-        del(nodes)
-
-      else:
-
-        laplacian_components = 4
-
-      # TO-DO - Use Graph Attention implementation of spatial embedding
-      self.node_embeddings = SpatialEmbedding(self.G, latlon=self.latlon, laplacian_components = laplacian_components,
-                                              dtype=self.dtype, device=self.device)
-
-      # The maximum sequence length is equal to the maximum graph degree, or the
-      # maximum number of neighbors a node have in the graph
-      # Náo entendi isso.. pq nao podemos aumentar o sequence length?
-
-      self.max_length = max([d for n, d in self.G.degree()]) + 1
-
-      # precompute and store all time embeddings to save processing
-      self.time_embeddings = SinusoidalTemporalEncoding(self.data['timestamp'], dtype=self.dtype, device=self.device)
-
-      self.num_sensors = self.G.number_of_nodes()
-      # print(f'PEMS dataset has {self.num_sensors} sensors')
-
-      #self.sensors = sorted([k for k in self.G.nodes()])
-      # print(f'PEMS dataset has {len(self.data)} samples')
-      self.num_samples = len(self.data) - self.steps_ahead
-      # print(f'PEMS dataset has {self.num_samples} samples')
-      self.token_dim = 9
-
-      self.value_index = 4
-
-      self.tokenizer = NeighborhoodTokenizer(dtype = self.dtype, device = self.device,
-                                             graph = self.G, num_nodes = self.num_sensors,
-                                             max_length = self.max_length, 
-                                             token_dim = self.token_dim, 
-                                             value_embedder = self.value_embedder,
-                                             spatial_embedding = self.node_embeddings,
-                                             temporal_embedding = self.time_embeddings)
-      
-      self.NULL_SYMBOL = self.tokenizer.NULL_SYMBOL
-
-      self.td = kwargs.get('use_tensordict', False)
-
-      if self.td:
-        self.to_tensordict()
+        super().__init__()
         
+        self.num_nodes = num_nodes
+        self.input_dim = input_dim
+        self.embedding_dim = embedding_dim
+        self.k = k
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Value embedding (projection linear layer)
+        self.value_embedding = nn.Linear(input_dim, embedding_dim)
+        
+        # Node embedding components
+        self.node_embedding_proj = nn.Linear(k, embedding_dim)
 
-    def to_tensordict(self):
-      if not self.td:
-        cols1 = self.data.columns[0]
-        cols2 = self.data.columns[1:].tolist()
+        self.temporal_embedder = SinusoidalTemporalEncoding(
+            dates, d_model=embedding_dim, device=self.device
+        )
 
-        df1 = self.data[[cols1]]
-        df2 = self.data[cols2]
+        # Fusion layer to combine all embeddings
+        # Modificar esse fusion (talvez).. tentar somar mesmo ou aumentar o 
+        self.fusion_layer = nn.Linear(embedding_dim * 3, embedding_dim)
+        
+        # Initialize laplacian matrix (will be computed once)
+        self.register_buffer('laplacian_eigenvectors', None)
+        self.register_buffer('laplacian_eigenvalues', None)
+        
+        # Store the graph data for sample retrieval
+        self.data_tensor = None
+        self.node_mapping = None
+        self.timestamp_mapping = None
+        self.timestamps = None
+        
+    def load_data(self, data_path: str, edges_path: str, nodes_path: str) -> Data:
+        """
+        Args:
+            data_path: Path to data.csv
+            edges_path: Path to edges.csv
+            nodes_path: Path to nodes.csv
+            
+        Returns:
+            PyG Data object with the graph structure
+        """
+        # Load data.csv
+        print("Loading traffic data...")
+        data_df = pd.read_csv(data_path)
+        
+        # Parse timestamps and create mapping
+        print("Processing timestamps...")
+        self.timestamps = data_df.iloc[:, 0].values
+        self.timestamp_mapping = {pd.Timestamp(ts): idx for idx, ts in enumerate(self.timestamps)}
+        
+        # Extract sensor data
+        sensor_data = data_df.iloc[:, 1:].values.astype(np.float32)  # [num_timesteps, num_nodes]
+        
+        # Load nodes.csv to get sensor mapping
+        print("Loading node information...")
+        nodes_df = pd.read_csv(nodes_path)
+        sensor_ids = nodes_df['sensor'].values
+        self.node_mapping = {sensor_id: idx for idx, sensor_id in enumerate(sensor_ids)}
+        self.reverse_node_mapping = {idx: sensor_id for sensor_id, idx in self.node_mapping.items()}
+        
+        # Verify that data columns match node mapping
+        if sensor_data.shape[1] != len(self.node_mapping):
+            print(f"Warning: Data has {sensor_data.shape[1]} sensors but node mapping has {len(self.node_mapping)} sensors")
+            # Use minimum of both
+            num_available_sensors = min(sensor_data.shape[1], len(self.node_mapping))
+            sensor_data = sensor_data[:, :num_available_sensors]
+        
+        # Load edges.csv to build graph
+        print("Loading edge information...")
+        edges_df = pd.read_csv(edges_path)
+        
+        # Create edge_index and edge_weight
+        edge_indices = []
+        edge_weights = []
+        
+        for _, row in edges_df.iterrows():
+            source = self.node_mapping.get(row['source'], -1)
+            target = self.node_mapping.get(row['target'], -1)
+            
+            if source != -1 and target != -1:
+                edge_indices.append([source, target])
+                edge_weights.append(row['weight'])
+        
+        edge_index = torch.tensor(edge_indices, dtype=torch.long).t().contiguous().to(self.device)
+        edge_weight = torch.tensor(edge_weights, dtype=torch.float).to(self.device)
+        
+        # Reshape sensor data for PyG: [num_nodes, num_timesteps, input_dim]
+        sensor_data = sensor_data.T  # [num_nodes, num_timesteps]
+        sensor_data = sensor_data[..., np.newaxis]  # [num_nodes, num_timesteps, 1]
+        
+        # Store data tensor for sample retrieval
+        self.data_tensor = torch.FloatTensor(sensor_data).to(self.device)  # [num_nodes, T, input_dim]
+        
+        # Compute Laplacian embedding
+        print("Computing Laplacian embedding...")
+        self.laplacian_eigenvectors, self.laplacian_eigenvalues = self.compute_laplacian_embedding(edge_index, edge_weight)
+        
+        # Create PyG data object
+        graph_data = Data(
+            x=torch.FloatTensor(sensor_data).to(self.device),  # [num_nodes, T, input_dim]
+            edge_index=edge_index,
+            edge_attr=edge_weight,
+            num_nodes=self.num_nodes
+        )
 
-        self.data = TensorDictDataframe(dtype=self.dtype, device = self.device, 
-                                        numeric_df=df2, nonnumeric_df=df1)
-        self.td = True
+        print(f"Graph built with {self.num_nodes} nodes, {edge_index.shape[1]} edges, {len(self.timestamps)} timestamps")
+        return graph_data
 
+    def compute_laplacian_embedding(self, edge_index: torch.Tensor, 
+                                   edge_weight: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute Laplacian eigenvectors for node embedding using sparse operations
+        """
+        try:
+            # Get normalized Laplacian
+            lap_index, lap_weight = get_laplacian(edge_index, edge_weight, normalization='sym')
+            
+            # Convert to sparse matrix for eigenvalue computation
+            from scipy.sparse import coo_matrix, linalg
+            import numpy as np
+            
+            # Convert to scipy sparse matrix
+            lap_index_np = lap_index.cpu().numpy()
+            lap_weight_np = lap_weight.cpu().numpy()
+            
+            L_sparse = coo_matrix((lap_weight_np, (lap_index_np[0], lap_index_np[1])), 
+                                 shape=(self.num_nodes, self.num_nodes))
+            
+            # Compute k smallest eigenvalues and eigenvectors
+            eigenvalues, eigenvectors = linalg.eigsh(L_sparse, k=min(self.k+1, self.num_nodes-1), which='SM')
+            
+            # Use k smallest non-zero eigenvectors (skip the first zero eigenvalue)
+            eigenvectors = eigenvectors[:, 1:self.k+1]  # Shape: [num_nodes, k]
+            eigenvalues = eigenvalues[1:self.k+1]       # Shape: [k]
+            
+            eigenvectors = torch.FloatTensor(eigenvectors).to(self.device)
+            eigenvalues = torch.FloatTensor(eigenvalues).to(self.device)
+            
+            return eigenvectors, eigenvalues
+            
+        except Exception as e:
+            print(f"Error computing Laplacian embedding: {e}")
+            print("Using random initialization as fallback")
+            
+            # Fallback: random eigenvectors
+            eigenvectors = torch.randn(self.num_nodes, self.k).to(self.device)
+            eigenvalues = torch.ones(self.k).to(self.device)
+            
+            return eigenvectors, eigenvalues
     
-    def get_sample(self, sensor, index):
-      X = self.tokenizer.tokenize_sample(self.data, sensor, index)
-      if not self.td:    
-        y = torch.tensor(self.data[str(sensor)].values[index+self.steps_ahead], dtype=self.dtype, device=self.device)
-      else:
-        y = self.data[str(sensor),index+self.steps_ahead]
-      return X,y
-
-    # Will returna a SensorDataset filled with the sensor & neighbors preprocessed data (X)
-    # and the expected values for t+y (y)
-    def get_sensor_dataset(self, sensor, train = 0.7, dtype = torch.float64, **kwargs):
-      X = self.tokenizer.tokenize_all(self.data, sensor)[:-self.steps_ahead]
-      #whats the size of the X?
-      print(f"Size of X for sensor {sensor}: {X.shape}")
-      #can i get a sample of the X?
-      print(f'Sample of X for sensor {sensor}: {X[0]}')
-      y = torch.tensor(self.data[str(sensor)].values[self.steps_ahead:], dtype=self.dtype, device=self.device)
-      print(f'Size of y for sensor {sensor}: {y.shape}')
-      print(f'Sample of y for sensor {sensor}: {y[0]}')
-      return SensorDataset(str(sensor),X,y,train, dtype, num_features = self.num_sensors,
-                           max_length=self.max_length, token_dim=self.token_dim,
-                           value_index=self.value_index, **kwargs)
-
-    def get_fewsensors_dataset(self, sensors, train = 0.7, dtype = torch.float64, **kwargs):
-      X = None
-      y = None
-      try:
-        for sensor in sensors:
-          tmpX = self.tokenizer.tokenize_all(self.data, sensor)[:-self.steps_ahead]
-          tmpy = torch.tensor(self.data[str(sensor)].values[self.steps_ahead:], dtype=self.dtype, device=self.device)
-          if X is None:
-            X = tmpX
-            y = tmpy
-          else:
-            #X = np.vstack((X,tmpX))
-            X = torch.vstack((X,tmpX))
-            #y = np.hstack((y,tmpy))
-            y = torch.hstack((y,tmpy))
-      except Exception as ex:
-        print(sensor, str(ex))
-
-      return SensorDataset('FEW',X,y,train, dtype, num_features = self.num_sensors,
-                           max_length=self.max_length, token_dim=self.token_dim,
-                           value_index=self.value_index, **kwargs)
-
-    
-    def get_breadth_dataset(self, start_sensor, max_sensors = 20, train = 0.7, dtype = torch.float64, **kwargs):
-      sensors = []
-      next = [start_sensor]
-      m = 0
-      while m < max_sensors:
-        for sensor in next:
-          if sensor not in sensors: 
-            sensors.append(sensor)
-            m += 1
-            next.remove(sensor)
-            if m < max_sensors:
-              for neighbor in self.G.neighbors(sensor):
-                next.append(neighbor)
+    def forward(self, x: Optional[torch.Tensor] = None, t: Optional[int] = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            """
+            Forward pass for all nodes at timestamp t
+            
+            Returns:
+                value_emb: Value embeddings [batch_size, num_nodes, embedding_dim]
+                node_emb: Node embeddings [batch_size, num_nodes, embedding_dim]
+                temporal_emb: Temporal embeddings [batch_size, embedding_dim]
+            """
+            if x is None:
+                if self.data_tensor is None:
+                    raise ValueError("No data available. Call load_pems03_data first.")
+                if t is None:
+                    raise ValueError("Timestamp t must be specified when using stored data.")
+                
+                x = self.data_tensor[:, t, :]  # [num_nodes, input_dim]
+                x = x.unsqueeze(0)  # Add batch dimension [1, num_nodes, input_dim]
+            
+            if len(x.shape) == 2:
+                x = x.unsqueeze(0)  # Add batch dimension
+            
+            batch_size = x.size(0)
+            
+            # Value embedding
+            value_emb = self.value_embedding(x)  # [batch_size, num_nodes, embedding_dim]
+            
+            # Node embedding from Laplacian
+            if self.laplacian_eigenvectors is not None:
+                node_emb = self.node_embedding_proj(self.laplacian_eigenvectors)  # [num_nodes, embedding_dim]
+                node_emb = node_emb.unsqueeze(0).expand(batch_size, -1, -1)  # Add batch dimension
             else:
-              break
-
-      return self.get_fewsensors_dataset(sensors, train = train, dtype = dtype, **kwargs), sensors
-
-    def get_allsensors_dataset(self, **kwargs):
-      return AllSensorDataset(pems=self, **kwargs)
+                node_emb = torch.randn(batch_size, self.num_nodes, self.embedding_dim).to(self.device)
+            
+            # Temporal embedding
+            if t is not None:
+                t_tensor = torch.tensor(t, device=self.device).repeat(batch_size)
+                temporal_emb = self.temporal_embedder(t_tensor)  # [batch_size, embedding_dim]
+                temporal_emb = temporal_emb.unsqueeze(1).expand(-1, self.num_nodes, -1)  # [batch_size, num_nodes, embedding_dim]
+            else:
+                temporal_emb = torch.zeros(batch_size, self.num_nodes, self.embedding_dim).to(self.device)
+            
+            return value_emb, node_emb, temporal_emb
     
-    def get_sensor(self, index):
-      if not self.td: 
-        return int(self.data.columns[index + 1])
-      else:
-        return int(self.data.numeric_columns[index])
+    def get_sample(self, node_index: int, timestamp: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get all three embeddings for a specific node and timestamp
+        """
+        if self.data_tensor is None:
+            raise ValueError("Load data first using load_pems03_data()")
+        
+        # Convert to internal indices
+        node_idx = self.node_mapping[node_index]
+        
+        # Convert to pandas Timestamp and then to string in the same format
+        ts_query = pd.Timestamp(timestamp)
 
+        t_idx = self.timestamp_mapping.get(ts_query)
+        if t_idx is None:
+            raise KeyError(f"Timestamp {ts_query} not found in mapping.")
+
+        # Get value embedding
+        x_t = self.data_tensor[node_idx, t_idx, :]  # [input_dim]
+        value_emb = self.value_embedding(x_t)  # [embedding_dim]
+        
+        # Get node embedding
+        if self.laplacian_eigenvectors is not None:
+            node_emb = self.node_embedding_proj(self.laplacian_eigenvectors[node_idx])  # [embedding_dim]
+        else:
+            node_emb = torch.randn(self.embedding_dim).to(self.device)
+        
+        # Get temporal embedding (using your improved class)
+        temporal_emb = self.temporal_embedder(timestamp)  # [embedding_dim]
+        
+        return value_emb, node_emb, temporal_emb
     
-    def to(self, *args, **kwargs):
-      if isinstance(args[0], str):
-        self.device = args[0]
-      else:
-        self.dtype = args[0]
-      return self
-    
-class PEMSDataset(Dataset):
-    def __init__(self, data_path, edges_path, nodes_path, 
-                 input_len=12, output_len=12,
-                 device="cpu"):
-        """Base dataset that handles all data loading"""
-        # Load all data files
-        self.full_data = pd.read_csv(data_path, parse_dates=['timestamp'], sep=',')
-        self.edges = pd.read_csv(edges_path)
-        self.nodes = pd.read_csv(nodes_path)
+    def get_combined_embedding(self, node_index: int, timestamp: str) -> torch.Tensor:
+        """
+        Get fused embedding combining all three components
+        """
+        value_emb, node_emb, temporal_emb = self.get_sample(node_index, timestamp)
         
-        # Process graph structure
-        self.edge_index = torch.tensor(self.edges[['source', 'target']].values.T, dtype=torch.long)
-        self.edge_attr = torch.tensor(self.edges['weight'].values, dtype=torch.float32)
-        
-        # Get sensor list
-        self.sensor_nodes = sorted([int(col) for col in self.full_data.columns if col != 'timestamp'])
-
-        self.num_nodes = len(self.sensor_nodes)
-        
-        # Store parameters
-        self.input_len = input_len
-        self.output_len = output_len
-        self.device = device
-        self.timestamps = sorted(self.full_data['timestamp'].unique())
-        
-        # Will be set during splitting
-        self.split_data = None
-        self.split_timestamps = None
-
-    @classmethod
-    def create_splits(cls, data_path, edges_path, nodes_path, 
-                     input_len=12, output_len=12,
-                     split_ratios=(0.7, 0.2, 0.1),
-                     device="cpu"):
-        """Factory method that returns train/val/test datasets"""
-        full_dataset = cls(data_path, edges_path, nodes_path, 
-                         input_len, output_len, device)
-        
-        # Time-based splitting indices
-        timestamps = full_dataset.timestamps
-        train_end = int(len(timestamps) * split_ratios[0])
-        val_end = train_end + int(len(timestamps) * split_ratios[1])
-        
-        # Create split-specific datasets
-        train_data = cls(data_path, edges_path, nodes_path,
-                        input_len, output_len, device)
-        train_data._set_split(timestamps[:train_end])
-        
-        val_data = cls(data_path, edges_path, nodes_path,
-                      input_len, output_len, device)
-        val_data._set_split(timestamps[train_end:val_end])
-        
-        test_data = cls(data_path, edges_path, nodes_path,
-                       input_len, output_len, device)
-        test_data._set_split(timestamps[val_end:])
-        
-        return train_data, val_data, test_data
-
-    def _set_split(self, split_timestamps):
-        """Internal method to set time range for this split"""
-        self.split_timestamps = split_timestamps
-        self.split_data = self.full_data[
-            self.full_data['timestamp'].isin(split_timestamps)
-        ]
-        self.timestamps = sorted(self.split_data['timestamp'].unique())
-
-    def __len__(self):
-        return len(self.timestamps) - self.input_len - self.output_len + 1
-        
-    def __getitem__(self, idx):
-        # Get input window
-        input_start = idx
-        input_end = input_start + self.input_len
-        input_data = self.split_data.iloc[input_start:input_end]
-        
-        # Get output window
-        output_start = input_end
-        output_end = output_start + self.output_len
-        output_data = self.split_data.iloc[output_start:output_end]
-        
-        # Prepare X (OrderedDict of timestamp -> sensor values)
-        X = OrderedDict()
-        for ts in input_data['timestamp']:
-            ts_str = str(ts)
-            X[ts_str] = OrderedDict()
-            for node in self.sensor_nodes:
-                X[ts_str][str(node)] = input_data.loc[input_data['timestamp'] == ts, f'{node}'].values[0]
-        
-        # Prepare y (tensor of future values)
-        y = torch.zeros((self.output_len, self.num_nodes), dtype=torch.float32)
-        for i, ts in enumerate(output_data['timestamp']):
-            for j, node in enumerate(self.sensor_nodes):
-                y[i,j] = output_data.loc[output_data['timestamp'] == ts, f'{node}'].values[0]
-        
-        return X, y.to(self.device)
-
-    def get_graph_data(self):
-        """Returns edge_index and edge_attr for the whole graph"""
-        return self.edge_index.to(self.device), self.edge_attr.to(self.device)
-
-
-class PEMS03(PEMSBase):
-    def __init__(self,**kwargs):
-      super(PEMS03, self).__init__(latlon = True, 
-                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/astorelucas/st_gnca/refs/heads/main/st_gnca/data/PEMS03/edges.csv"),
-                                   nodes_file = kwargs.pop('nodes_file', "https://raw.githubusercontent.com/astorelucas/st_gnca/refs/heads/main/st_gnca/data/PEMS03/nodes.csv"),
-                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/astorelucas/st_gnca/refs/heads/main/st_gnca/data/PEMS03/data.csv"),
-                                   **kwargs)
-
-class PEMS04(PEMSBase):
-    def __init__(self,**kwargs):
-      super(PEMS04, self).__init__(latlon = False, 
-                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS04/edges.csv"),
-                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS04/data.csv"),
-                                   **kwargs)
-
-class PEMS08(PEMSBase):
-    def __init__(self,**kwargs):
-      super(PEMS08, self).__init__(latlon = False, 
-                                   edges_file = kwargs.pop('edges_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS08/edges.csv"),
-                                   data_file = kwargs.pop('data_file', "https://raw.githubusercontent.com/petroniocandido/st_nca/refs/heads/main/st_nca/data/PEMS08/data.csv"),
-                                   **kwargs)
+        combined = torch.cat([value_emb, node_emb, temporal_emb], dim=0)
+        return self.fusion_layer(combined)  # [embedding_dim]
