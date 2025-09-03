@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from tensordict import TensorDict
-from st_gnca.common import TensorDictDataframe
+from st_gnca.modules.common import TensorDictDataframe
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

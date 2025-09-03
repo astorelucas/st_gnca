@@ -1,61 +1,65 @@
 import torch
 from torch import nn
 
-from st_gnca.modules.transformers import Transformer, get_config as transformer_get_config
-
-from st_gnca.modules.moe import SparseMixtureOfExperts
-from st_gnca.common import activations, dtypes, get_device
-from st_gnca.datasets.PEMS import get_config as pems_get_config
-
-from xlstm import xLSTMBlockStack, xLSTMBlockStackConfig, sLSTMBlockConfig, mLSTMBlockConfig, sLSTMLayerConfig, mLSTMLayerConfig, FeedForwardConfig
+from xlstm import xLSTMBlockStack
+from torch_geometric.nn import GATConv
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class xLSTMForecast(nn.Module):
-    def __init__(self, token_dim, max_length, output_len, hidden_dim, cfg, 
+    def __init__(self, input_dim, max_length, output_dim, hidden_dim, cfg, 
                  dropout=0.15, device="cuda", dtype=torch.float32):
         super().__init__()
-        self.token_dim = token_dim
-        self.max_length = max_length
+        self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        self.output_len = output_len
+        self.output_dim = output_dim
         self.device = device
         self.dtype = dtype
 
+        # GAT Layer
+        self.gat_layer = GATConv(
+                    in_channels=input_dim,
+                    out_channels=hidden_dim
+                ).to(dtype=dtype)
+        
         # XLSTM Block Stack
         self.xlstm = xLSTMBlockStack(cfg).to(dtype=dtype)
 
         # Output projection
-        self.output_proj = nn.Linear(
-            hidden_dim, 
-            output_len * max_length
-        ).to(dtype=dtype)
+        self.output_proj = nn.Linear(hidden_dim, output_dim).to(dtype=dtype)
 
         # Ensure all parameters are on correct device and dtype
         self.to(device=device, dtype=dtype)
 
-    def forward(self, x, edge_index, edge_attr=None):
-        # Validate input dtype
-        if x.dtype != self.dtype:
-            x = x.to(dtype=self.dtype)
-        if edge_attr is not None and edge_attr.dtype != self.dtype:
-            edge_attr = edge_attr.to(dtype=self.dtype)
-        
-        B, T, N = x.shape  # Batch, Timesteps, Node features
+    def forward(self, x, graph):
 
-        # Flatten spatial-temporal dimensions for GAT
-        x_flat = x.reshape(B * T, N)
-        # Continue with XLSTM
-        
-        x_lstm = self.xlstm(x_flat)
-        output = self.output_proj(x_lstm[:, -1, :])
-        return output.reshape(B, self.output_len, -1)
+        sequence_out = []
+
+        for t in range(x.size(1)):
+            xt = x[:, t, :]
+
+            # Apply GAT layer
+            gat_out = self.gat_layer(xt, graph)
+
+            sequence_out.append(gat_out.unsqueeze(1))
+
+
+        sequence_out = torch.stack(sequence_out, dim=1)
+
+        xlstm_input = sequence_out.view(sequence_out.size(0), sequence_out.size(1), -1)
+
+        xlstm_out, _ = self.xlstm(xlstm_input)
+
+        prediction = self.output_proj(xlstm_out[:, -1, :])
+
+        return prediction
     
     def to(self, *args, **kwargs):
-      """Override to ensure consistent device/dtype handling"""
+
       self = super().to(*args, **kwargs)
       # Update device/dtype attributes if specified
+
       for arg in args:
           if isinstance(arg, torch.dtype):
               self.dtype = arg

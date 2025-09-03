@@ -1,59 +1,88 @@
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GATConv
+import torch.nn.functional as F
 
-class GraphAttentionEmbedder(nn.Module):
-    def __init__(
-        self,
-        num_nodes,
-        value_dim,
-        node_feat_dim,
-        temporal_dim,
-        hidden_dim=64,
-        heads=4
-    ):
+from torch_geometric.utils import to_dense_adj, dense_to_sparse
+
+class GraphTransformer(nn.Module):
+    def __init__(self, in_channels, out_channels, heads=1):
         super().__init__()
+        self.heads = heads
+        self.out_channels = out_channels
+        
+        # Use Xavier/Glorot initialization for linear layers
+        self.node_proj = nn.Linear(in_channels, out_channels * heads)
+        torch.nn.init.xavier_uniform_(self.node_proj.weight)
+        self.node_proj.bias.data.zero_()
+        
+        # Learnable attention parameters
+        self.attn_src = nn.Parameter(torch.Tensor(1, heads, out_channels))
+        self.attn_dst = nn.Parameter(torch.Tensor(1, heads, out_channels))
+        
+        nn.init.xavier_uniform_(self.attn_src)
+        nn.init.xavier_uniform_(self.attn_dst)
+        
+    def forward(self, x, edge_index):
+        N = x.size(0) # Number of nodes
+        
+        # Project node features
+        x_proj = self.node_proj(x).view(N, self.heads, self.out_channels)
+        
+        # Calculate attention scores
+        alpha_src = (x_proj * self.attn_src).sum(dim=-1) # [N, heads]
+        alpha_dst = (x_proj * self.attn_dst).sum(dim=-1) # [N, heads]
+        scores = alpha_src.unsqueeze(0) + alpha_dst.unsqueeze(1) # [N, N, heads]
+        
+        # Convert edge_index to a dense adjacency mask
+        adj_dense = to_dense_adj(edge_index, max_num_nodes=N).squeeze(0) # [N, N]
+        
+        # DEBUG: Check for isolated nodes (nodes with no neighbors)
+        node_degrees = adj_dense.sum(dim=1)
+        if (node_degrees == 0).any():
+            print(f"WARNING: Found {(node_degrees == 0).sum()} isolated nodes. Adding self-loops to prevent NaN.")
+            # Add self-loops for isolated nodes
+            idx = torch.arange(N, device=adj_dense.device)
+            adj_dense[idx, idx] = 1 # Add self-loop
+            node_degrees = adj_dense.sum(dim=1) # Recalculate degrees
 
-        # --- Input projection layers ---
-        self.value_proj = nn.Linear(value_dim, hidden_dim)
-        self.node_proj = nn.Linear(node_feat_dim, hidden_dim)
-        self.time_proj = nn.Linear(temporal_dim, hidden_dim)
+        # Create the mask: -inf where there is NO edge, 0 where there is an edge
+        # We also force self-loops to be included so a node always attends to itself.
+        adj_dense_with_self_loops = adj_dense.clone()
+        idx = torch.arange(N, device=adj_dense.device)
+        adj_dense_with_self_loops[idx, idx] = 1  # Ensure self-attention is always possible
 
-        # --- Graph Attention (spatial) ---
-        self.gat = GATConv(hidden_dim, hidden_dim, heads=heads, concat=False)
+        # Create the mask for the attention scores
+        mask = (adj_dense_with_self_loops == 0).unsqueeze(-1) # [N, N, 1]
+        scores = scores.masked_fill(mask, -1e9)  # Use a large negative number instead of -inf
 
-    def forward(self, x, edge_index, node_features, temporal_features):
-        print("x shape:", x.shape)                        # expected [T, N] or [B, T, N]
-        print("edge_index shape:", edge_index.shape)      # expected [2, E]
-        print("node_features shape:", node_features.shape) # expected [N, node_feat_dim]
-        print("temporal_features shape:", temporal_features.shape) # expected [T, temporal_dim]
+        # Apply stable softmax
+        attn_weights = F.softmax(scores, dim=1) # [N, N, heads]
+        
+        # Apply attention: weighted sum of projected features
+        out = torch.einsum('ijh,jhd->ihd', attn_weights, x_proj)
+        out = out.reshape(N, self.heads * self.out_channels)
+        
+        return out
 
-        """
-        Args:
-            x: [B, T, N, value_dim]        Value embeddings
-            edge_index: [2, E]             Graph edges
-            node_features: [N, node_feat_dim]
-            temporal_features: [T, temporal_dim]
-        Returns:
-            node_embeddings: [B, T, N, hidden_dim] 
-            each e_{i,t} = node_emb_{i,t} + value_emb_{i,t} + time_emb_{i,t} (after GAT)
-        """
-        B, T, N, _ = x.shape
 
-        # --- Project inputs ---
-        x_proj = self.value_proj(x)  # [B, T, N, hidden_dim]
-        node_proj = self.node_proj(node_features).unsqueeze(0).unsqueeze(1)  # [1,1,N,hidden_dim]
-        time_proj = self.time_proj(temporal_features).unsqueeze(0).unsqueeze(2)  # [1,T,1,hidden_dim]
-
-        # --- Sum to fuse embeddings ---
-        h = x_proj + node_proj + time_proj  # [B, T, N, hidden_dim]
-
-        # --- Graph Attention (spatial) ---
-        h_flat = h.view(B*T, N, -1)
-        gat_out = []
-        for bt in range(B*T):
-            gat_out.append(self.gat(h_flat[bt], edge_index))  # [N, hidden_dim]
-        gat_out = torch.stack(gat_out, dim=0)
-        gat_out = gat_out.view(B, T, N, -1)  # [B, T, N, hidden_dim]
-
-        return gat_out  # embedding e_{i,t} for each node and timestep
+class GraphTransformerEmbedder(nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, heads=1):
+        super().__init__()
+        self.layer1 = GraphTransformer(in_dim, hidden_dim, heads=heads)
+        self.activation = nn.ReLU()
+        # Initialize the final linear layer properly
+        self.layer2 = nn.Linear(hidden_dim * heads, out_dim)
+        torch.nn.init.xavier_uniform_(self.layer2.weight)
+        self.layer2.bias.data.zero_()
+        
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        # Add a print to check input (optional)
+        # print(f"Input x stats: mean={x.mean().item():.4f}, std={x.std().item():.4f}, isnan={torch.isnan(x).any()}")
+        x = self.layer1(x, edge_index)
+        # print(f"Post-Layer1 stats: mean={x.mean().item():.4f}, std={x.std().item():.4f}, isnan={torch.isnan(x).any()}")
+        x = self.activation(x)
+        x = self.layer2(x)
+        # print(f"Final Embedding stats: mean={x.mean().item():.4f}, std={x.std().item():.4f}, isnan={torch.isnan(x).any()}")
+        return x

@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 
 from st_gnca.embeddings.temporal import str_to_datetime, from_datetime_to_pd
-from st_gnca.globalmodel.gnca import get_timestamp
+from st_gnca.globalmodel.gnca_old import get_timestamp
 
 def MAPE(y, y_pred):
   return torch.mean((y - y_pred).abs() / (y.abs() + 1e-8))
