@@ -1,8 +1,0 @@
-source,target,weight
-sensor_5,sensor_3,27
-sensor_5,sensor_2,35
-sensor_2,sensor_3,48
-sensor_1,sensor_2,69
-sensor_1,sensor_5,82
-sensor_4,sensor_5,3
-sensor_5,sensor_1,100

@@ -3,78 +3,115 @@ from torch import nn
 import pandas as pd
 import numpy as np
 
-from st_gnca.modules.graphattention import GraphTransformerEmbedder, GraphTransformer
-from st_gnca.embeddings.spatial import SpatialEmbedding
-from st_gnca.embeddings.value import ValueEmbedding
-
-from st_gnca.datasets.PEMS import build_data
-
-from torch_geometric.data import Data
-
+from st_gnca.training.gncatraining import train_gnca_model
+from st_gnca.dataloader.database import DataBase, BatchBuilder
+from st_gnca.cellmodel.cell_model import xLSTMForecast
+from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
+                     sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
+from st_gnca.globalmodel.gnca import GraphCellularAutomata
 
 print("Setting up model configuration...")
 # Setup device and data types
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.float32
-
-
+DEFAULT_PATH = 'st_gnca/'
+DATA_PATH = DEFAULT_PATH + 'data/synthetic/'
 
 # Usage example
 if __name__ == "__main__":
 
+    data = DataBase(
+        edges_file=DATA_PATH + 'edge.csv',
+        data_file=DATA_PATH + 'data.csv'
+    )
+    print("DataBase initialized.")
 
-    data = build_data()
+    batches = BatchBuilder(data, batch_size=32, sequence_len=10)
+    print("BatchBuilder initialized.")
 
-    print("\n" + "="*50)
-    print("DATA SANITY CHECKS")
-    print("="*50)
-    print(f"Data features shape: {data.x.shape}")
-    print(f"Data features - Mean: {data.x.mean().item():.4f}, Std: {data.x.std().item():.4f}")
-    print(f"Data features - Min: {data.x.min().item():.4f}, Max: {data.x.max().item():.4f}")
-    print(f"Data features - NaN values: {torch.isnan(data.x).sum().item()}")
-    print(f"Data features - Inf values: {torch.isinf(data.x).sum().item()}")
+    print("Starting model's configuration...")
+    hidden_dim = 64
+    output_dim = 1
 
-    # 4.2 Initialize model
-model = GraphTransformerEmbedder(
-    in_dim=data.num_features, # Use the actual feature dimension
-    hidden_dim=16,
-    out_dim=8,
-    heads=2
+    temporal_emb_dim = data.temporal_features.size(1)
+    value_emb_dim = data.sensor_data.size(1) // data.num_sensors
+    max_graph_degree = data.max_graph_degree
+    feature_dim = temporal_emb_dim + ((hidden_dim + 1) * max_graph_degree)
+
+    print(f"Feature Embedding Dim: {feature_dim}")
+
+    input_len = feature_dim
+
+    print(f"Cell model initialization")
+    xlstm_config = xLSTMBlockStackConfig(
+        mlstm_block=mLSTMBlockConfig(
+            mlstm=mLSTMLayerConfig(
+                conv1d_kernel_size=3, 
+                num_heads=8           # More heads for complex temporal patterns
+            )
+        ),
+        slstm_block=sLSTMBlockConfig(
+            slstm=sLSTMLayerConfig(
+                backend="vanilla", 
+                num_heads=4,         # Balance capacity/compute
+                conv1d_kernel_size=3
+            ),
+            feedforward=FeedForwardConfig(
+                proj_factor=2.0,      # Wider FFN (original: 1.0)
+                act_fn="gelu"
+            )
+        ),
+        context_length=input_len,     # Match input_len
+        num_blocks=4,                 # Deeper stack
+        embedding_dim=hidden_dim,
+        slstm_at=[1, 3]               # Add sLSTM at blocks 1 and 3
 )
+    cell_model = xLSTMForecast(
+        input_dim= input_len,  # Each sensor and its neighbors
+        output_dim=1,
+        hidden_dim=64,
+        graph = data.get_adj_matrix(),
+        cfg=xlstm_config
+    )
 
-# 4.3 A tiny forward pass test with a subset of data
-print("\n" + "="*50)
-print("RUNNING A SMALL SANITY CHECK")
-print("="*50)
-test_x = data.x[:5] # Test on first 5 nodes
-test_edge_index = data.edge_index # Use all edges, the layer will mask automatically
+    print(f"GNCA model initialization")
+    gnca = GraphCellularAutomata(
+        graph=data.G,
+        cell_model=cell_model,
+        device=DEVICE,
+        dtype=DTYPE
+    )
+    print("Model configuration completed.")
+    print("Starting training...")
 
-# Test just the first layer
-test_layer = GraphTransformer(data.num_features, 16, heads=2)
-with torch.no_grad():
-    test_output = test_layer(test_x, test_edge_index)
-print(f"Test output shape: {test_output.shape}")
-print(f"Test output - NaN values: {torch.isnan(test_output).sum().item()}")
+    train_gnca_model(gnca, 
+                     batches.get_train_loader(), 
+                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
+                     criterion=nn.MSELoss(),
+                     num_epochs=1,
+                     device=DEVICE)
 
-# 4.4 Now run the full model
-if torch.isnan(test_output).sum().item() == 0:
-    print("\n" + "="*50)
-    print("GENERATING FINAL EMBEDDINGS")
-    print("="*50)
-    model.eval()
-    with torch.no_grad():
-        node_embeddings = model(data)
 
-    print("\nGenerated Node Embeddings:")
-    print(f"Shape: {node_embeddings.shape}")
-    print(f"Embeddings contain NaN: {torch.isnan(node_embeddings).any().item()}")
-    print(f"Embeddings contain Inf: {torch.isinf(node_embeddings).any().item()}")
-    print(f"Embedding stats - Mean: {node_embeddings.mean().item():.4f}, Std: {node_embeddings.std().item():.4f}")
+'''
+    # train_loader = batches.get_train_loader()
+    # print("Train loader size:", len(train_loader)) # 573 batches of 32 sequences
+    # Get the first batch
+    # first_batch_X, first_batch_y = next(iter(train_loader))
 
-    if not torch.isnan(node_embeddings).any():
-        print("\nSuccess! Embeddings for the first 5 nodes:")
-        print(node_embeddings[:5])
-    else:
-        print("\nStill getting NaN. Let's try a simpler approach.")
-else:
-    print("\nThe test failed. The issue is likely in the data or the graph structure.")
+    # # Print the shapes
+    # print("Shape of X (input features):", first_batch_X.shape)
+    # print("Shape of y (target labels):", first_batch_y.shape)
+
+    # adj_matrix = data.get_adj_matrix()
+    # print("Adjacency Matrix:", adj_matrix)
+    # data_features = data._concat_features()
+
+    # print("Data Features Shape:", data_features.shape) #([26208, 358, 5])
+    # print("Number of sensors:", data.num_sensors) # 358
+    # print("Number of edges:", data.num_edges) #547
+    # print("Temporal Embeddings Shape:", data.temporal_features.shape) #([26208, 4])
+    # print("Temporal Embeddings Example:", data.temporal_features[0]) # tensor([ 0.6760,  0.7369, -0.9985, -0.0554])
+    # print("Sensor Data Shape:", data.sensor_data.shape) #([26208, 358])
+    # # first row of data_features for one sensor
+    # print("First row of Data Features for Sensor 0:", data_features[0, 0, :]) #[ 0.6760,  0.7369, -0.9985, -0.0554,  0.0108]
+    '''

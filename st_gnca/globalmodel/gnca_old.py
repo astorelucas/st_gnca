@@ -11,7 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from tensordict import TensorDict
 
-from st_gnca.datasets.PEMS import get_config as pems_get_config
+from st_gnca.dataloader.database import get_config as pems_get_config
 from st_gnca.embeddings.temporal import str_to_datetime, from_datetime_to_pd
 from st_gnca.cellmodel.cell_model import CellModel, get_config as cell_model_get_config, load_config as cell_model_load_config
 from st_gnca.tokenizer.tokenizer import NeighborhoodTokenizer
