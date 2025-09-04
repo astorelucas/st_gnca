@@ -8,7 +8,7 @@ from torch_geometric.nn import GATConv
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class xLSTMForecast(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim, graph, cfg,
+    def __init__(self, input_dim, output_dim, hidden_dim, edge_index, cfg,
                  dropout=0.15, device=DEVICE, dtype=torch.float32, **kwargs):
         super().__init__()
         self.input_dim = input_dim
@@ -16,12 +16,12 @@ class xLSTMForecast(nn.Module):
         self.output_dim = output_dim
         self.device = device
         self.dtype = dtype
-        self.graph = graph
+        self.edge_index = edge_index
         self.X_batch_graph = kwargs.get('X_batch_graph', None)
 
         # GAT Layer
         self.gat_layer = GATConv(
-                    in_channels=(4+5),
+                    in_channels=1,
                     out_channels=hidden_dim
                 ).to(dtype=dtype)
         
@@ -34,33 +34,39 @@ class xLSTMForecast(nn.Module):
         # Ensure all parameters are on correct device and dtype
         self.to(device=device, dtype=dtype)
 
-    def _prepare_xlstm_input(self, x):
-        # x shape: [batch_size, seq_len, feature_dim]
-        # We need to ensure the input to xLSTM is of shape [batch_size, seq_len, hidden_dim]
-        if x.size(2) != self.hidden_dim:
-            x = nn.Linear(x.size(2), self.hidden_dim).to(device=self.device, dtype=self.dtype)(x)
-        return x
+   #FALTA FAZER ESSA FUNCAO : 
+    def _prepare_xlstm_input(self, x, sensor, gat_out):
+        # Prepare input for xLSTM by concatenating GAT output with target sensor data
+        for neighbor in sensor.neighbors:
+            gat_out = torch.cat((gat_out, x[neighbor]), dim=-1)
+        return gat_out
 
-    def forward(self, x):
+    def forward(self, x, sensor):
         print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
         sequence_out = []
+        selected_indices = [4, 5, 6, 7, 8]  # Assuming first 4 indices are temporal features
 
         if self.X_batch_graph is not None:
+            xt_filtered = self.X_batch_graph[:, :, selected_indices]
+            print(f"Filtered x shape : {xt_filtered.shape}")
             for t in range(x.size(1)):
                 #extract time step t
-                xt = self.X_batch_graph[:, t, :]
+                xt = xt_filtered[:, t, :]
                 print(f"Time step {t}, xt shape before GAT: {xt.shape}") #torch.Size([32, 9])
 
                 # Apply GAT layer
-                gat_out = self.gat_layer(xt, self.graph.edge_index)
+                xt = xt.unsqueeze(-1)
+                xt_flattened = xt.contiguous().view(-1, 1)
+                gat_out = self.gat_layer(xt_flattened, self.edge_index)
+                gat_out = gat_out.view(xt.size(0), -1, self.gat_layer.out_channels)
 
-                sequence_out.append(gat_out.unsqueeze(1))
+                sequence_out.append(gat_out)
 
             sequence_out = torch.stack(sequence_out, dim=1)
             print(f"Sequence out shape after GAT: {sequence_out.shape}")
 
         # Filtrar
-        xlstm_input = self._prepare_xlstm_input(sequence_out)
+        xlstm_input = self._prepare_xlstm_input(x, sensor, sequence_out)
 
         print(f"xLSTM input shape: {xlstm_input.shape}") #[batch, seq_len, hidden_dim]
         xlstm_out, _ = self.xlstm(xlstm_input)

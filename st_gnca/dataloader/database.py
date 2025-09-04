@@ -70,6 +70,7 @@ class DataBase:
     def concat_features(self):
         # Concatenate temporal embeddings with all sensor features for all timestamps
         combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
+        print(f"Combined features shape: {combined.shape}") 
         return combined
 
 class BatchBuilder:

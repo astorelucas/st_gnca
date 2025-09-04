@@ -70,7 +70,7 @@ if __name__ == "__main__":
         input_dim= input_len,  # Each sensor and its neighbors
         output_dim=1,
         hidden_dim=64,
-        graph = data.get_adj_matrix(),
+        edge_index=data.edge_index,
         cfg=xlstm_config
     )
 
