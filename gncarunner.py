@@ -20,6 +20,17 @@ DATA_PATH = DEFAULT_PATH + 'data/synthetic/'
 # Usage example
 if __name__ == "__main__":
 
+    '''
+    AINDA FALTA:
+    - Mapping dos ids dos sensores PEMS03 para valores de indices 0-357
+    (to utilizando syntetic data com 5 sensores pra teste)
+    - tirar o temporal embedding do input
+    - add dropout
+    - double check no tokenizer, o padding 0 quando vizinhança < max_degree ta ok?
+    - double check pós tokenizer
+    - ajustar o input_dim do cell model
+    '''
+
     data = DataBase(
         edges_file=DATA_PATH + 'edge.csv',
         data_file=DATA_PATH + 'data.csv'
@@ -40,7 +51,7 @@ if __name__ == "__main__":
 
     print(f"Feature Embedding Dim: {feature_dim}")
 
-    input_len = feature_dim
+    input_len = 345
 
     print(f"Cell model initialization")
     xlstm_config = xLSTMBlockStackConfig(
@@ -71,6 +82,7 @@ if __name__ == "__main__":
         output_dim=1,
         hidden_dim=64,
         edge_index=data.edge_index,
+        graph=data.G,
         cfg=xlstm_config
     )
 
@@ -90,6 +102,8 @@ if __name__ == "__main__":
                      criterion=nn.MSELoss(),
                      num_epochs=1,
                      device=DEVICE)
+    
+    #
 
 
 '''

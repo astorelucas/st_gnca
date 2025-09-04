@@ -15,6 +15,9 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
             outputs = gnca.call_model(X_batch)
 
+            print(f"Outputs shape: {outputs.shape}")
+            nodes = [4,5,6,7,8]
+            y_batch = y_batch[:,nodes]
             loss = criterion(outputs, y_batch)
             loss.backward()
 
