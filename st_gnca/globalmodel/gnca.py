@@ -13,6 +13,7 @@ class GraphCellularAutomata(nn.Module):
   def call_model(self, X_batch):
     outputs = []
 
+    # Store the batch graph for neighborhood extraction during forward pass
     self.cell_model.X_batch_graph = X_batch
 
     # Pass through each sensor/node in the graph, to form the predicted output for each node

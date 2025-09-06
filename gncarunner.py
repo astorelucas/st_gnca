@@ -24,11 +24,6 @@ if __name__ == "__main__":
     AINDA FALTA:
     - Mapping dos ids dos sensores PEMS03 para valores de indices 0-357
     (to utilizando syntetic data com 5 sensores pra teste)
-    - tirar o temporal embedding do input
-    - add dropout
-    - double check no tokenizer, o padding 0 quando vizinhança < max_degree ta ok?
-    - double check pós tokenizer
-    - ajustar o input_dim do cell model
     '''
 
     data = DataBase(
@@ -45,13 +40,13 @@ if __name__ == "__main__":
     output_dim = 1
 
     temporal_emb_dim = data.temporal_features.size(1)
-    value_emb_dim = data.sensor_data.size(1) // data.num_sensors
+    value_emb_dim = 1
     max_graph_degree = data.max_graph_degree
-    feature_dim = temporal_emb_dim + ((hidden_dim + 1) * max_graph_degree)
+    feature_dim = temporal_emb_dim + ((hidden_dim + 1) * (max_graph_degree+1))
 
-    print(f"Feature Embedding Dim: {feature_dim}")
+    print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
-    input_len = 345
+    input_len = feature_dim
 
     print(f"Cell model initialization")
     xlstm_config = xLSTMBlockStackConfig(
@@ -101,6 +96,7 @@ if __name__ == "__main__":
                      optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
                      criterion=nn.MSELoss(),
                      num_epochs=1,
+                     temp_dim=temporal_emb_dim,
                      device=DEVICE)
     
     #

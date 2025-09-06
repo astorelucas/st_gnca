@@ -1,5 +1,5 @@
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_dim, device):
 
     for epoch in range(num_epochs):
         total_loss = 0
@@ -16,8 +16,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             outputs = gnca.call_model(X_batch)
 
             print(f"Outputs shape: {outputs.shape}")
-            nodes = [4,5,6,7,8]
-            y_batch = y_batch[:,nodes]
+            y_batch = y_batch[:,temp_dim:]
             loss = criterion(outputs, y_batch)
             loss.backward()
 
