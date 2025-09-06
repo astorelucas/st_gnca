@@ -62,7 +62,7 @@ class xLSTMForecast(nn.Module):
         all_neighbors = np.unique(all_neighbors)  # Remove duplicates if any
 
         assert len(all_neighbors) <= self.max_graph_degree and len(all_neighbors) > 0, \
-            # f"Sensor {target_sensor_idx} has {len(all_neighbors)} neighbors, which exceeds max graph degree {self.max_graph_degree} or is zero."
+            f"Sensor {target_sensor_idx} has {len(all_neighbors)} neighbors, which exceeds max graph degree {self.max_graph_degree} or is zero."
 
         all_indices = np.append(target_sensor_idx, all_neighbors)
         # print(f"All indices for sensor {target_sensor_idx}: {all_indices}")

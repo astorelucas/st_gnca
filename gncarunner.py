@@ -20,13 +20,13 @@ print("Setting up model configuration...")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
+DATA_PATH = DEFAULT_PATH + 'data/synthetic/'
 
 # Usage example
 if __name__ == "__main__":
 
     data = DataBase(
-        edges_file=DATA_PATH + 'edges.csv',
+        edges_file=DATA_PATH + 'edge.csv',
         data_file=DATA_PATH + 'data.csv'
     )
     print("DataBase initialized.")
@@ -94,11 +94,11 @@ if __name__ == "__main__":
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
                                     criterion=nn.MSELoss(),
-                                    num_epochs=1,
+                                    num_epochs=2,
                                     temp_dim=temporal_emb_dim,
                                     device=DEVICE,
                                     return_history=True,
-                                    save_path=DEFAULT_PATH + 'models/gnca_model.pth')
+                                    save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth')
     
     print("Training completed.")
 
@@ -111,14 +111,14 @@ if __name__ == "__main__":
 
     plot_training_loss(
         training_losses,
-        save_path=DEFAULT_PATH + 'plots/gnca_training_loss.png',
+        save_path=DEFAULT_PATH + 'results/gnca_training_loss.png',
         show=True
     )
 
-    test_gnca_model(gnca, 
+    results = test_gnca_model(gnca, 
                     batches.get_test_loader(), 
-                    criterion=nn.MSELoss(),
                     temp_dim=temporal_emb_dim,
                     device=DEVICE,
                     save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth')
+    print(results)
     print("Testing completed.")
