@@ -23,16 +23,16 @@ def build_scaler(train_ds, device="cuda", sample_size=100_000):
     print(f"Scaler initialized with {len(sample_ys)} samples (min={scaler.min:.4f}, max={scaler.max:.4f})")
     return scaler
 
-class ValueEmbedding_old(nn.Module):
+class ValueEmbedding(nn.Module):
   def __init__(self, data, **kwargs):
     super().__init__()
     self.device = kwargs.get('device',DEVICE)
     self.dtype = kwargs.get('dtype',torch.float32)
-    self.type = kwargs.get('value_embedding_type','normalization')
+    self.value_embedding_type = kwargs.get('value_embedding_type','normalization')
 
-    if self.type == 'normalization':
+    if self.value_embedding_type == 'normalization':
       self.embedder = ZTransform(data, **kwargs)
-    elif self.type == 'scaling':
+    elif self.value_embedding_type == 'scaling':
       self.embedder = ScalingTransform(data, **kwargs)
     else:
       raise ValueError("Unknown embedder type!")
@@ -86,7 +86,6 @@ class ScalingTransform(nn.Module):
                 self.device = args[0] if isinstance(args[0], str) else args[0].type
         return self
   
-
 class ZTransform(nn.Module):
   def __init__(self, data, **kwargs):
     super().__init__()
@@ -112,9 +111,7 @@ class ZTransform(nn.Module):
 
     return self
   
-
-
-class ValueEmbedding(nn.Module):
+class LearnableValueEmbedding(nn.Module):
     """
     A flexible module to handle and embed various types of node features.
     It combines numerical and categorical feature processing.
@@ -194,56 +191,3 @@ class ValueEmbedding(nn.Module):
     def extra_repr(self):
         return f'mode={self.mode}, embedding_dim={self.embedding_dim}'
 
-
-# Example of a wrapper class that STORES the features for the "raw" mode
-class ValueEmbeddingWithStorage(ValueEmbedding):
-    """
-    An extended version that also stores the raw numerical and categorical feature tensors.
-    This makes the 'raw' mode functional.
-    """
-    def __init__(self, numerical_features=None, categorical_features=None, **kwargs):
-        """
-        Args:
-            numerical_features (torch.Tensor): Tensor of numerical features of shape [num_nodes, numerical_dim].
-            categorical_features (list of torch.Tensor): List of tensors, each of shape [num_nodes],
-                                                         containing category indices for each feature.
-        """
-        # Infer dimensions from the data
-        num_nodes = numerical_features.size(0) if numerical_features is not None else categorical_features[0].size(0)
-        numerical_dim = numerical_features.size(1) if numerical_features is not None else 0
-        categorical_dims = [cat_feat.max().item() + 1 for cat_feat in categorical_features] if categorical_features else []
-
-        super().__init__(num_nodes, numerical_dim, categorical_dims, **kwargs)
-
-        # Store the actual feature data
-        if numerical_features is not None:
-            self.register_buffer('numerical_features', numerical_features)
-        if categorical_features is not None:
-            # Register each categorical feature tensor as a buffer
-            for i, cat_feat in enumerate(categorical_features):
-                self.register_buffer(f'categorical_feature_{i}', cat_feat)
-            self.num_categorical = len(categorical_features)
-
-    def forward(self, node_indices=None):
-        if self.mode != 'raw':
-            return super().forward(node_indices)
-
-        if node_indices is None:
-            node_indices = torch.arange(self.numerical_features.size(0), device=self.numerical_features.device)
-
-        # 1. Get numerical features
-        embedded_features = []
-        if self.numerical_dim > 0:
-            num_feats = self.numerical_features[node_indices]
-            embedded_features.append(num_feats)
-
-        # 2. Get and embed each categorical feature
-        for i in range(self.num_categorical):
-            cat_tensor = getattr(self, f'categorical_feature_{i}')
-            cat_indices = cat_tensor[node_indices]
-            emb = self.cat_embeddings[i](cat_indices)
-            embedded_features.append(emb)
-
-        # 3. Concatenate all features and project
-        x = torch.cat(embedded_features, dim=-1)
-        return self.feature_projection(x)

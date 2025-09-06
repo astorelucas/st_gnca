@@ -176,21 +176,21 @@ def from_np_to_datetime(np_dt):
     return pd.Timestamp(np_dt).to_pydatetime()
 
 class SinusoidalTemporalEncoding(nn.Module):
-    def __init__(self, dates, d_model=64, device=None, dtype=torch.float32):
+    def __init__(self, dates, emb_dim=4, device=None, dtype=torch.float32):
         super().__init__()
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.dtype = dtype
-        self.d_model = d_model
+        self.emb_dim = emb_dim
         
         # Store embeddings for all dates
         tmp_dict = {}
         for date in dates:
-            tmp_dict[datetime_to_str(date)] = self._compute_encoding(date, d_model)
+            tmp_dict[datetime_to_str(date)] = self._compute_encoding(date, emb_dim)
         
         self.embeddings = tmp_dict
         self.length = len(dates)
-    
-    def _compute_encoding(self, dt, d_model):
+
+    def _compute_encoding(self, dt, emb_dim):
         """
         Compute sinusoidal encoding for a specific datetime
         """
@@ -201,8 +201,8 @@ class SinusoidalTemporalEncoding(nn.Module):
         pos = torch.tensor([seconds], dtype=self.dtype, device=self.device)
         
         # Create division term
-        i = torch.arange(d_model // 2, dtype=self.dtype, device=self.device)
-        div_term = torch.exp(i * (-math.log(10000.0) / (d_model // 2)))
+        i = torch.arange(emb_dim // 2, dtype=self.dtype, device=self.device)
+        div_term = torch.exp(i * (-math.log(10000.0) / (emb_dim // 2)))
         
         # Compute sine and cosine parts
         angle_rads = pos * div_term
@@ -210,7 +210,7 @@ class SinusoidalTemporalEncoding(nn.Module):
         cos_part = torch.cos(angle_rads)
         
         # Interleave sine and cosine
-        encoding = torch.zeros(d_model, dtype=self.dtype, device=self.device)
+        encoding = torch.zeros(emb_dim, dtype=self.dtype, device=self.device)
         encoding[0::2] = sin_part
         encoding[1::2] = cos_part
         
