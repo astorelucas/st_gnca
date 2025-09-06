@@ -39,11 +39,11 @@ class DataBase:
                 self.G.add_edge(source_idx, target_idx, weight=weight)
 
         self.edge_index = torch.tensor(list(self.G.edges)).t().contiguous().to(self.device)
-        print(f"Edge Index shape: {self.edge_index.shape}") # Should be [2, num_edges]
+        # print(f"Edge Index shape: {self.edge_index.shape}") # Should be [2, num_edges]
 
         self.edge_weight = torch.tensor([self.G[u][v]['weight'] for u,v in self.G.edges()]).to(self.device)
 
-        self.sensor_data, self.adj_matrix = self._load_data()
+        self.sensor_data = self._load_data()
 
         self.temporal_embedding = SinusoidalTemporalEncoding(emb_dim=4, 
                                                              dates=self.data['timestamp'], 
@@ -86,19 +86,12 @@ class DataBase:
                                                device=self.device)
         sensor_data = self.value_embedding(torch.tensor(sensor_data, dtype=self.dtype, device=self.device))
 
-        # Create adjacency matrix
-        adj_matrix = nx.to_numpy_array(self.G, nodelist=self.sensor_ids)
-        adj_matrix = torch.tensor(adj_matrix, dtype=self.dtype, device=self.device)
-
-        return sensor_data, adj_matrix
-        
-    def get_adj_matrix(self):
-        return self.adj_matrix
+        return sensor_data
 
     def concat_features(self):
         # Concatenate temporal embeddings with all sensor features for all timestamps
         combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
-        print(f"Combined features shape: {combined.shape}") # ([26208, 358, 5])
+        # print(f"Combined features shape: {combined.shape}") # ([26208, 358, 5])
         return combined
 
 class BatchBuilder:

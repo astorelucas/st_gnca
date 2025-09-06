@@ -2,9 +2,6 @@ import numpy as np
 import pandas as pd
 import torch
 
-from st_gnca.embeddings.temporal import str_to_datetime, from_datetime_to_pd
-from st_gnca.globalmodel.gnca_old import get_timestamp
-
 def MAPE(y, y_pred):
   return torch.mean((y - y_pred).abs() / (y.abs() + 1e-8))
 
@@ -45,42 +42,3 @@ def extract_tensor(model, state):
   n = len(model.nodes)
   vals = [state[str(k)] for k in model.nodes]
   return torch.tensor(vals, device=model.device, dtype=model.dtype)
-
-
-def evaluate(dataset, gca, steps_ahead, increment_type='minutes', increment=5):
-  gca.eval()
-  columns = ['timestamp','mape','mae','rmse','nrmse']
-  rows = []
-  with torch.no_grad():
-    for ix in range(len(dataset) - increment * steps_ahead):
-      X,y = dataset[ix]
-      p = gca.run(str_to_datetime(X['timestamp']), X, iterations=steps_ahead, 
-                  increment_type=increment_type, increment=increment, 
-                  return_type='tensor').detach()
-      row = [get_timestamp(str_to_datetime(X['timestamp']),increment_type, increment * steps_ahead)]
-      
-      row.extend([
-        SMAPE(y, p).cpu().item(), 
-        MAE(y, p).cpu().item(), 
-        RMSE(y, p).cpu().item(), 
-        nRMSE(y, p).cpu().item()]
-        )
-      rows.append(row)
-  return pd.DataFrame(rows, columns=columns)
-
-
-def residuals(dataset, gca, steps_ahead, increment_type='minutes', increment=5):
-  gca.eval()
-  columns = ['timestamp','residual']
-  rows = []
-  with torch.no_grad():
-    for ix in range(len(dataset) - increment * steps_ahead):
-      X,y = dataset[ix]
-      p = gca.run(str_to_datetime(X['timestamp']), X, iterations=steps_ahead, 
-                  increment_type=increment_type, increment=increment, 
-                  return_type='tensor').detach()
-      row = [get_timestamp(str_to_datetime(X['timestamp']),increment_type, increment * steps_ahead)]
-      
-      row.append(torch.median(y - p).cpu().item())
-      rows.append(row)
-  return pd.DataFrame(rows, columns=columns)

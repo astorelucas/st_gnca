@@ -3,7 +3,12 @@ from torch import nn
 import pandas as pd
 import numpy as np
 
-from st_gnca.training.gncatraining import train_gnca_model
+from st_gnca.training.gncatraining import (
+    train_gnca_model, 
+    plot_training_loss, 
+    evaluate_gnca_model,
+    test_gnca_model
+)
 from st_gnca.dataloader.database import DataBase, BatchBuilder
 from st_gnca.cellmodel.cell_model import xLSTMForecast
 from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
@@ -15,19 +20,13 @@ print("Setting up model configuration...")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/synthetic/'
+DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 # Usage example
 if __name__ == "__main__":
 
-    '''
-    AINDA FALTA:
-    - Mapping dos ids dos sensores PEMS03 para valores de indices 0-357
-    (to utilizando syntetic data com 5 sensores pra teste)
-    '''
-
     data = DataBase(
-        edges_file=DATA_PATH + 'edge.csv',
+        edges_file=DATA_PATH + 'edges.csv',
         data_file=DATA_PATH + 'data.csv'
     )
     print("DataBase initialized.")
@@ -44,7 +43,7 @@ if __name__ == "__main__":
     max_graph_degree = data.max_graph_degree
     feature_dim = temporal_emb_dim + ((hidden_dim + 1) * (max_graph_degree+1))
 
-    print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
+    # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
     input_len = feature_dim
 
@@ -91,37 +90,35 @@ if __name__ == "__main__":
     print("Model configuration completed.")
     print("Starting training...")
 
-    train_gnca_model(gnca, 
-                     batches.get_train_loader(), 
-                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
-                     criterion=nn.MSELoss(),
-                     num_epochs=1,
-                     temp_dim=temporal_emb_dim,
-                     device=DEVICE)
+    avg_loss, training_losses = train_gnca_model(gnca, 
+                                    batches.get_train_loader(), 
+                                    optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
+                                    criterion=nn.MSELoss(),
+                                    num_epochs=1,
+                                    temp_dim=temporal_emb_dim,
+                                    device=DEVICE,
+                                    return_history=True,
+                                    save_path=DEFAULT_PATH + 'models/gnca_model.pth')
     
-    #
+    print("Training completed.")
 
+    evaluate_gnca_model(gnca, 
+                        batches.get_val_loader(), 
+                        criterion=nn.MSELoss(),
+                        temp_dim=temporal_emb_dim,
+                        device=DEVICE)
+    print("Evaluation completed.")
 
-'''
-    # train_loader = batches.get_train_loader()
-    # print("Train loader size:", len(train_loader)) # 573 batches of 32 sequences
-    # Get the first batch
-    # first_batch_X, first_batch_y = next(iter(train_loader))
+    plot_training_loss(
+        training_losses,
+        save_path=DEFAULT_PATH + 'plots/gnca_training_loss.png',
+        show=True
+    )
 
-    # # Print the shapes
-    # print("Shape of X (input features):", first_batch_X.shape)
-    # print("Shape of y (target labels):", first_batch_y.shape)
-
-    # adj_matrix = data.get_adj_matrix()
-    # print("Adjacency Matrix:", adj_matrix)
-    # data_features = data._concat_features()
-
-    # print("Data Features Shape:", data_features.shape) #([26208, 358, 5])
-    # print("Number of sensors:", data.num_sensors) # 358
-    # print("Number of edges:", data.num_edges) #547
-    # print("Temporal Embeddings Shape:", data.temporal_features.shape) #([26208, 4])
-    # print("Temporal Embeddings Example:", data.temporal_features[0]) # tensor([ 0.6760,  0.7369, -0.9985, -0.0554])
-    # print("Sensor Data Shape:", data.sensor_data.shape) #([26208, 358])
-    # # first row of data_features for one sensor
-    # print("First row of Data Features for Sensor 0:", data_features[0, 0, :]) #[ 0.6760,  0.7369, -0.9985, -0.0554,  0.0108]
-    '''
+    test_gnca_model(gnca, 
+                    batches.get_test_loader(), 
+                    criterion=nn.MSELoss(),
+                    temp_dim=temporal_emb_dim,
+                    device=DEVICE,
+                    save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth')
+    print("Testing completed.")

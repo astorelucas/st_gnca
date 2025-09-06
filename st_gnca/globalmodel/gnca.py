@@ -10,11 +10,17 @@ class GraphCellularAutomata(nn.Module):
     self.device = kwargs.get('device', torch.device('cpu'))
     self.dtype = kwargs.get('dtype', torch.float32)
 
-  def call_model(self, X_batch):
+  def call_model(self, X_batch, **kwargs):
     outputs = []
 
     # Store the batch graph for neighborhood extraction during forward pass
     self.cell_model.X_batch_graph = X_batch
+
+    mode = kwargs.get('mode', 'train')
+    if mode == 'train':
+      self.cell_model.train()
+    else:
+      self.cell_model.eval()
 
     # Pass through each sensor/node in the graph, to form the predicted output for each node
     for sensor in self.graph.nodes:
