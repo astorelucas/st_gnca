@@ -31,13 +31,14 @@ if __name__ == "__main__":
         data_file=DATA_PATH + 'data.csv'
     )
     print("DataBase initialized.")
+    horizon = 3
 
-    batches = BatchBuilder(data, batch_size=32, sequence_len=10)
+    batches = BatchBuilder(data, batch_size=32, sequence_len=12, horizon=horizon)
     print("BatchBuilder initialized.")
 
     print("Starting model's configuration...")
     hidden_dim = 64
-    output_dim = 1
+    output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
@@ -74,7 +75,7 @@ if __name__ == "__main__":
 )
     cell_model = xLSTMForecast(
         input_dim= input_len,  # Each sensor and its neighbors
-        output_dim=1,
+        output_dim=output_dim,
         hidden_dim=64,
         edge_index=data.edge_index,
         graph=data.G,
@@ -91,14 +92,13 @@ if __name__ == "__main__":
     print("Model configuration completed.")
     print("Starting training...")
 
-    scaler = ScalingTransform()
+    scaler = ScalingTransform(data.sensor_data_raw, device=DEVICE, dtype=DTYPE)
 
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
                                     criterion=nn.MSELoss(),
                                     num_epochs=2,
-                                    temp_dim=temporal_emb_dim,
                                     device=DEVICE,
                                     return_history=True,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     plot_training_loss(
         training_losses,
         save_path=DEFAULT_PATH + 'results/gnca_training_loss.png',
-        show=True
+        show=False
     )
 
     results = test_gnca_model(gnca, 

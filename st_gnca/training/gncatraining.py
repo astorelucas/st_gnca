@@ -1,11 +1,11 @@
 import torch
-import torch.nn as nn
+import pandas as pd
 import os
 import matplotlib.pyplot as plt
-from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE
+from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_training_losses_csv
 from tqdm.auto import tqdm
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_dim, device, save_path=None, return_history: bool = False, scaler=None):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, scaler=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -21,16 +21,25 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_
             optimizer.zero_grad()
 
             # Batch X shape: torch.Size([32, 10, 358]), Batch y shape: torch.Size([32, 358])
+            # Batch X shape: torch.Size([32, 12, 9]), Batch y shape: torch.Size([32, 3, 9])
             # print(f"Batch X shape: {X_batch.shape}, Batch y shape: {y_batch.shape}")
             
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
 
             outputs = gnca.call_model(X_batch, mode='train')
+            # print(f"Outputs shape: {outputs.shape}")
+            # Outputs shape: torch.Size([32, 5, 3])
 
             # Remove temporal features
-            y_target = y_batch[:, temp_dim:]
+            output_dim = outputs.shape[-2]
+            y_target = y_batch[..., -output_dim:]
             outputs = outputs
+
+            outputs = outputs.permute(0, 2, 1)
+
+            # print("Example output :", outputs[0])
+            # print("Example target :", y_target[0])
 
             # --- Denormalize both outputs and targets before loss ---
             if scaler is not None:
@@ -40,6 +49,9 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_
                 y_target_denorm = y_target
                 outputs_denorm = outputs
 
+            # print(f"Outputs denorm shape: {outputs_denorm.shape}, y target denorm shape: {y_target_denorm.shape}")
+            # print("Example output denorm:", outputs_denorm[0])
+            # print("Example target denorm:", y_target_denorm[0])
             loss = criterion(outputs_denorm, y_target_denorm)
             loss.backward()
 
@@ -87,18 +99,22 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=No
     n_batches = 0
 
     with torch.no_grad():
-        for X_batch, y_batch in val_loader:
+        for X_batch, y_batch in tqdm(val_loader, unit="batch", leave=False):
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
 
             outputs = gnca.call_model(X_batch, mode='val')
 
-            # match training preprocessing: drop temporal features from target
-            y_target = y_batch[:, temp_dim:]
+            # Remove temporal features
+            output_dim = outputs.shape[-2]
+            y_target = y_batch[..., -output_dim:]
+            outputs = outputs
 
-            # If target has extra dims, trim to match outputs' last dim
-            if outputs.shape != y_target.shape:
-                y_target = y_target[..., : outputs.shape[-1]]
+            outputs = outputs.permute(0, 2, 1)
+
+            # # If target has extra dims, trim to match outputs' last dim
+            # if outputs.shape != y_target.shape:
+            #     y_target = y_target[..., : outputs.shape[-1]]
 
             # --- Denormalize both outputs and targets before loss ---
             if scaler is not None:
@@ -108,6 +124,8 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=No
                 y_target_denorm = y_target
                 outputs_denorm = outputs
 
+            # print(f"Val Outputs denorm shape: {outputs_denorm.shape}, y target denorm shape: {y_target_denorm.shape}")
+            # PRINT an example from outputs_denorm and y_target_denorm
             loss = criterion(outputs_denorm, y_target_denorm)
             total_loss += loss.item()
             n_batches += 1
@@ -127,6 +145,8 @@ def plot_training_loss(training_losses, save_path: str = None, show: bool = Fals
     Returns:
       matplotlib.figure.Figure
     """
+    save_training_losses_csv(training_losses, "training_losses.csv")
+
     fig, ax = plt.subplots(figsize=(6,4))
     epochs = list(range(1, len(training_losses)+1))
     ax.plot(epochs, training_losses, marker='o', linestyle='-')
@@ -160,16 +180,24 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
     targets_list = []
 
     with torch.no_grad():
-        for X_batch, y_batch in test_loader:
+        for X_batch, y_batch in tqdm(test_loader, unit="batch", leave=False):
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
+            # print(f"Test batch X shape: {X_batch.shape}, y shape: {y_batch.shape}")
 
-            outputs = gnca.call_model(X_batch, mode='val')
+            outputs = gnca.call_model(X_batch, mode='val') # [358, horizon]
+            # print(f"Test batch outputs shape: {outputs.shape}")
 
-            # align with training/validation preprocessing
-            y_target = y_batch[:, temp_dim:]
-            if outputs.shape != y_target.shape:
-                y_target = y_target[..., : outputs.shape[-1]]
+            # Remove temporal features
+            output_dim = outputs.shape[-2]
+            y_target = y_batch[..., -output_dim:]
+            outputs = outputs
+
+            outputs = outputs.permute(0, 2, 1)
+            # # align with training/validation preprocessing
+            # y_target = y_batch[:, temp_dim:]
+            # if outputs.shape != y_target.shape:
+            #     y_target = y_target[..., : outputs.shape[-1]]
 
             # --- Denormalize both outputs and targets before metrics ---
             if scaler is not None:
@@ -202,6 +230,19 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         os.makedirs(os.path.dirname(save_predictions_path) or ".", exist_ok=True)
         torch.save({'preds': preds, 'targets': targets, 'metrics': metrics}, save_predictions_path)
         print(f"Test predictions and metrics saved to: {save_predictions_path}")
+
+        results = torch.load(save_predictions_path)
+
+        preds = results["preds"].numpy().reshape(-1, 5)   # flatten horizon
+        targets = results["targets"].numpy().reshape(-1, 5)
+
+        df = pd.DataFrame({
+            f"pred_{i}": preds[:, i] for i in range(preds.shape[1])
+        } | {
+            f"target_{i}": targets[:, i] for i in range(targets.shape[1])
+        })
+
+        df.to_csv("results_testing_raw.csv", index=False)
 
     gnca.train()
     return {'metrics': metrics, 'preds': preds, 'targets': targets}

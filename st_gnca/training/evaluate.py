@@ -15,6 +15,8 @@ def RMSE(y, y_pred):
   return torch.sqrt(torch.mean((y - y_pred) ** 2))
 
 def nRMSE(y, y_pred):
+  # I’m considering the RSME/mean(y_true) .. so for example:
+  # nRMSE = 0.05 (5%) means the average prediction error is 5% of the mean of the true values
   return RMSE(y, y_pred)/torch.mean(y)
 
 
@@ -42,3 +44,9 @@ def extract_tensor(model, state):
   n = len(model.nodes)
   vals = [state[str(k)] for k in model.nodes]
   return torch.tensor(vals, device=model.device, dtype=model.dtype)
+
+def save_training_losses_csv(training_losses, save_path):
+    df = pd.DataFrame({'epoch': range(1, len(training_losses)+1), 'loss': training_losses})
+    df.to_csv(save_path, index=False)
+    print(f"Training losses saved to: {save_path}")
+    return save_path

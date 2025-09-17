@@ -19,6 +19,7 @@ class DataBase:
 
         self.data = pd.read_csv(kwargs.get('data_file','data.csv'), engine='pyarrow')
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
+        self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
 
         self.num_sensors = self.G.number_of_nodes()
 
@@ -78,13 +79,13 @@ class DataBase:
 
     def _load_data(self):
         # Extract sensor data and convert to tensor
-        sensor_data = self.data.drop(columns=['timestamp']).values  # Shape: [n_timesteps, n_sensors]
 
-        self.value_embedding = ValueEmbedding(sensor_data, 
+        self.value_embedding = ValueEmbedding(self.sensor_data_raw, 
                                                value_embedding_type='scaling',
                                                dtype=self.dtype, 
                                                device=self.device)
-        sensor_data = self.value_embedding(torch.tensor(sensor_data, dtype=self.dtype, device=self.device))
+
+        sensor_data = self.value_embedding(torch.tensor(self.sensor_data_raw, dtype=self.dtype, device=self.device))
 
         return sensor_data
 
@@ -95,7 +96,8 @@ class DataBase:
         return combined
 
 class BatchBuilder:
-    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.1,device=DEVICE, dtype=DTYPE):
+    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.1,device=DEVICE, dtype=DTYPE, **kwargs):
+        
         self.data_tokenized = data.concat_features()
         self.batch_size = batch_size
         self.device = device
@@ -105,6 +107,7 @@ class BatchBuilder:
         self.sequence_len = sequence_len
         self.train_split = train_split
         self.val_split = val_split
+        self.horizon = kwargs.get('horizon', 0)
 
         self.train_data, self.val_data, self.test_data = self._split_data()
 
@@ -126,16 +129,18 @@ class BatchBuilder:
         X, Y = [], []
         num_timesteps = data.size(0)
 
-        for i in range(num_timesteps - self.sequence_len):
-            input_window = data[i:i+self.sequence_len]
-            target_window = data[i+self.sequence_len]
+        for i in range(num_timesteps - self.sequence_len - self.horizon):
+            input_window = data[i:i+self.sequence_len]  # input seq
+            target_window = data[i+self.sequence_len : i+self.sequence_len+self.horizon]  # output seq
             X.append(input_window)
             Y.append(target_window)
 
-        # stack list of tensors into a single tensor: shapes -> X: [number_of_sequences, seq_len, num_sensors], Y: [number_of_sequences, num_sensors]
+        # X: [num_samples, seq_len, num_features]
+        # Y: [num_samples, horizon, num_features]
         X = torch.stack(X) if len(X) > 0 else torch.empty((0,), dtype=self.dtype, device=self.device)
         Y = torch.stack(Y) if len(Y) > 0 else torch.empty((0,), dtype=self.dtype, device=self.device)
         return X.to(dtype=self.dtype, device=self.device), Y.to(dtype=self.dtype, device=self.device)
+
     
     def get_train_loader(self):
         X, Y = self._create_sequences(self.train_data)
