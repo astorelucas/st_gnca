@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE
 from tqdm.auto import tqdm
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_dim, device, save_path=None, return_history: bool = False):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_dim, device, save_path=None, return_history: bool = False, scaler=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -28,9 +28,19 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_
 
             outputs = gnca.call_model(X_batch, mode='train')
 
-            # print(f"Outputs shape: {outputs.shape}")
-            y_batch = y_batch[:,temp_dim:]
-            loss = criterion(outputs, y_batch)
+            # Remove temporal features
+            y_target = y_batch[:, temp_dim:]
+            outputs = outputs
+
+            # --- Denormalize both outputs and targets before loss ---
+            if scaler is not None:
+                y_target_denorm = scaler.denormalize(y_target)
+                outputs_denorm = scaler.denormalize(outputs)
+            else:
+                y_target_denorm = y_target
+                outputs_denorm = outputs
+
+            loss = criterion(outputs_denorm, y_target_denorm)
             loss.backward()
 
             optimizer.step()
@@ -58,7 +68,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, temp_
 
     return avg_loss
 
-def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device):
+def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=None):
     """
     Run evaluation on validation loader and return average loss.
 
@@ -68,6 +78,7 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device):
         criterion: loss function (e.g. nn.MSELoss())
         temp_dim: number of temporal feature columns to drop from targets
         device: torch.device
+        scaler: optional ScalingTransform for denormalization
 
     Returns:
         avg_loss (float)
@@ -89,7 +100,15 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device):
             if outputs.shape != y_target.shape:
                 y_target = y_target[..., : outputs.shape[-1]]
 
-            loss = criterion(outputs, y_target)
+            # --- Denormalize both outputs and targets before loss ---
+            if scaler is not None:
+                y_target_denorm = scaler.denormalize(y_target)
+                outputs_denorm = scaler.denormalize(outputs)
+            else:
+                y_target_denorm = y_target
+                outputs_denorm = outputs
+
+            loss = criterion(outputs_denorm, y_target_denorm)
             total_loss += loss.item()
             n_batches += 1
 
@@ -126,7 +145,7 @@ def plot_training_loss(training_losses, save_path: str = None, show: bool = Fals
 
     return fig
 
-def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: str = None):
+def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: str = None, scaler=None):
     """
     Run inference on test_loader and return aggregated metrics and predictions.
 
@@ -152,8 +171,16 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
             if outputs.shape != y_target.shape:
                 y_target = y_target[..., : outputs.shape[-1]]
 
-            preds_list.append(outputs.cpu())
-            targets_list.append(y_target.cpu())
+            # --- Denormalize both outputs and targets before metrics ---
+            if scaler is not None:
+                y_target_denorm = scaler.denormalize(y_target)
+                outputs_denorm = scaler.denormalize(outputs)
+            else:
+                y_target_denorm = y_target
+                outputs_denorm = outputs
+
+            preds_list.append(outputs_denorm.cpu())
+            targets_list.append(y_target_denorm.cpu())
 
     preds = torch.cat(preds_list, dim=0) if preds_list else torch.empty((0,))
     targets = torch.cat(targets_list, dim=0) if targets_list else torch.empty((0,))

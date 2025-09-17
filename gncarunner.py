@@ -14,6 +14,7 @@ from st_gnca.cellmodel.cell_model import xLSTMForecast
 from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
                      sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
+from st_gnca.embeddings.value import ScalingTransform
 
 print("Setting up model configuration...")
 # Setup device and data types
@@ -90,6 +91,8 @@ if __name__ == "__main__":
     print("Model configuration completed.")
     print("Starting training...")
 
+    scaler = ScalingTransform()
+
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
@@ -98,7 +101,8 @@ if __name__ == "__main__":
                                     temp_dim=temporal_emb_dim,
                                     device=DEVICE,
                                     return_history=True,
-                                    save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth')
+                                    save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
+                                    scaler=scaler)
     
     print("Training completed.")
 
@@ -106,7 +110,8 @@ if __name__ == "__main__":
                         batches.get_val_loader(), 
                         criterion=nn.MSELoss(),
                         temp_dim=temporal_emb_dim,
-                        device=DEVICE)
+                        device=DEVICE,
+                        scaler=scaler)
     print("Evaluation completed.")
 
     plot_training_loss(
@@ -119,6 +124,9 @@ if __name__ == "__main__":
                     batches.get_test_loader(), 
                     temp_dim=temporal_emb_dim,
                     device=DEVICE,
-                    save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth')
+                    save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth',
+                    scaler=scaler
+                    )
+    
     print(results)
     print("Testing completed.")

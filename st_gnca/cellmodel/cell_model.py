@@ -53,6 +53,8 @@ class xLSTMForecast(nn.Module):
         """
         Finds a target sensor and its neighbors, then aggregates and pads raw, temporal,
         and GAT features into a single tensor for that neighborhood.
+
+        TO-DO: verificar a distribuicao, se tiver poucos com max_degree, pode dar overfitting, talvez usar um outro valor de padding
         """
 
         # --- 1. Identify the nodes in the neighborhood ---
