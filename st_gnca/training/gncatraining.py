@@ -233,8 +233,11 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
 
         results = torch.load(save_predictions_path)
 
-        preds = results["preds"].numpy().reshape(-1, 5)   # flatten horizon
-        targets = results["targets"].numpy().reshape(-1, 5)
+        preds = results["preds"].cpu().numpy()
+        targets = results["targets"].cpu().numpy()
+
+        preds = preds.reshape(-1, preds.shape[-1])
+        targets = targets.reshape(-1, targets.shape[-1])
 
         df = pd.DataFrame({
             f"pred_{i}": preds[:, i] for i in range(preds.shape[1])
