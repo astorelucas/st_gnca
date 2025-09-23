@@ -14,8 +14,7 @@ from st_gnca.cellmodel.cell_model import xLSTMForecast
 from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
                      sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
-from st_gnca.embeddings.value import ScalingTransform
-from st_gnca.training.evaluate import EarlyStopping
+from st_gnca.embeddings.value import ScalingTransform, MinMaxTransform
 
 print("Setting up model configuration...")
 # Setup device and data types
@@ -60,7 +59,7 @@ if __name__ == "__main__":
         ),
         slstm_block=sLSTMBlockConfig(
             slstm=sLSTMLayerConfig(
-                backend="cuda", 
+                backend="vanilla", 
                 num_heads=4,         # Balance capacity/compute
                 conv1d_kernel_size=3
             ),
@@ -94,7 +93,7 @@ if __name__ == "__main__":
     print("Starting training...")
     
 
-    scaler = ScalingTransform(data.sensor_data_raw, device=DEVICE, dtype=DTYPE)
+    scaler = MinMaxTransform(data.sensor_data_raw, device=DEVICE, dtype=DTYPE)
 
     print(f"Device available: {DEVICE}")
 

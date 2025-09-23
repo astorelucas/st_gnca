@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_training_losses_csv
 from tqdm.auto import tqdm
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, scaler=None):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, scaler=None, val_loader=None, temp_dim=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -13,7 +13,16 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
     of per-epoch average losses.
     """
     training_losses = []
+
+    # Setup LR scheduler on validation loss if a val_loader is provided
+    scheduler = None
+    if val_loader is not None:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=3
+        )
+
     for epoch in range(num_epochs):
+        gnca.train()
         total_loss = 0.0
         n_batches = 0
         for X_batch, y_batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch", leave=False):
@@ -41,29 +50,27 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             # print("Example output :", outputs[0])
             # print("Example target :", y_target[0])
 
-            # --- Denormalize both outputs and targets before loss ---
-            if scaler is not None:
-                y_target_denorm = scaler.denormalize(y_target)
-                outputs_denorm = scaler.denormalize(outputs)
-            else:
-                y_target_denorm = y_target
-                outputs_denorm = outputs
-
-            # print(f"Outputs denorm shape: {outputs_denorm.shape}, y target denorm shape: {y_target_denorm.shape}")
-            # print("Example output denorm:", outputs_denorm[0])
-            # print("Example target denorm:", y_target_denorm[0])
-            loss = criterion(outputs_denorm, y_target_denorm)
+            # Compute loss in normalized space
+            loss = criterion(outputs, y_target)
             loss.backward()
+
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(gnca.parameters(), max_norm=1.0)
 
             optimizer.step()
 
             total_loss += loss.item()
             n_batches += 1
-            
+        
         epoch_loss = total_loss / n_batches if n_batches > 0 else 0.0
         training_losses.append(epoch_loss)
-        # Optionally print the loss for this batch
-        print(f"Epoch [{epoch+1}/{num_epochs}], Epoch Loss: {epoch_loss:.4f}")
+        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss:.4f}")
+
+        # Step scheduler on validation loss if available
+        if scheduler is not None:
+            val_loss = evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
+            print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
+            scheduler.step(val_loss)
 
     avg_loss = sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
 
@@ -112,21 +119,8 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=No
 
             outputs = outputs.permute(0, 2, 1)
 
-            # # If target has extra dims, trim to match outputs' last dim
-            # if outputs.shape != y_target.shape:
-            #     y_target = y_target[..., : outputs.shape[-1]]
-
-            # --- Denormalize both outputs and targets before loss ---
-            if scaler is not None:
-                y_target_denorm = scaler.denormalize(y_target)
-                outputs_denorm = scaler.denormalize(outputs)
-            else:
-                y_target_denorm = y_target
-                outputs_denorm = outputs
-
-            # print(f"Val Outputs denorm shape: {outputs_denorm.shape}, y target denorm shape: {y_target_denorm.shape}")
-            # PRINT an example from outputs_denorm and y_target_denorm
-            loss = criterion(outputs_denorm, y_target_denorm)
+            # Compute validation loss in normalized space
+            loss = criterion(outputs, y_target)
             total_loss += loss.item()
             n_batches += 1
 
@@ -236,16 +230,18 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         preds = results["preds"].cpu().numpy()
         targets = results["targets"].cpu().numpy()
 
+        # automatically flatten batch & sequence dimensions, keep horizon intact
         preds = preds.reshape(-1, preds.shape[-1])
         targets = targets.reshape(-1, targets.shape[-1])
 
+        # build dataframe with dynamic horizon
         df = pd.DataFrame({
-            f"pred_{i}": preds[:, i] for i in range(preds.shape[1])
-        } | {
-            f"target_{i}": targets[:, i] for i in range(targets.shape[1])
+            **{f"pred_{i}": preds[:, i] for i in range(preds.shape[1])},
+            **{f"target_{i}": targets[:, i] for i in range(targets.shape[1])},
         })
 
         df.to_csv("results_testing_raw.csv", index=False)
+
 
     gnca.train()
     return {'metrics': metrics, 'preds': preds, 'targets': targets}

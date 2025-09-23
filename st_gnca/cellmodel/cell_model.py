@@ -25,11 +25,11 @@ class xLSTMForecast(nn.Module):
         # Dropout layer
         self.dropout = nn.Dropout(p=dropout)
 
-        # GAT Layer
-        self.gat_layer = GATConv(
-                    in_channels=1,
-                    out_channels=hidden_dim
-                ).to(dtype=dtype)
+        # # GAT Layer
+        # self.gat_layer = GATConv(
+        #             in_channels=1,
+        #             out_channels=hidden_dim
+        #         ).to(dtype=dtype)
         
         self.input_mapper = nn.Linear(input_dim, hidden_dim).to(dtype=dtype)
         
@@ -120,33 +120,33 @@ class xLSTMForecast(nn.Module):
 
         return final
 
-    def _gat_spatial_embedder(self, xt_filtered):
-        sequence_out = []
-        for t in range(xt_filtered.size(1)):
-            #extract time step t
-            xt = xt_filtered[:, t, :]
-            # print(f"Time step {t}, xt shape before GAT: {xt.shape}") #torch.Size([32, 9])
+    # def _gat_spatial_embedder(self, xt_filtered):
+    #     sequence_out = []
+    #     for t in range(xt_filtered.size(1)):
+    #         #extract time step t
+    #         xt = xt_filtered[:, t, :]
+    #         # print(f"Time step {t}, xt shape before GAT: {xt.shape}") #torch.Size([32, 9])
 
-            # Apply GAT layer
-            xt = xt.unsqueeze(-1)
-            xt_flattened = xt.contiguous().view(-1, 1)
-            gat_out = self.gat_layer(xt_flattened, self.edge_index)
-            gat_out = gat_out.view(xt.size(0), -1, self.gat_layer.out_channels)
+    #         # Apply GAT layer
+    #         xt = xt.unsqueeze(-1)
+    #         xt_flattened = xt.contiguous().view(-1, 1)
+    #         gat_out = self.gat_layer(xt_flattened, self.edge_index)
+    #         gat_out = gat_out.view(xt.size(0), -1, self.gat_layer.out_channels)
 
-            sequence_out.append(gat_out)
+    #         sequence_out.append(gat_out)
 
-        spatial_embedder = torch.stack(sequence_out, dim=1)
-        # print(f"Sequence out shape after GAT: {spatial_embedder.shape}") #torch.Size([32, 10, 5, 64])
-        return spatial_embedder
+    #     spatial_embedder = torch.stack(sequence_out, dim=1)
+    #     # print(f"Sequence out shape after GAT: {spatial_embedder.shape}") #torch.Size([32, 10, 5, 64])
+    #     return spatial_embedder
     
-    def forward(self, x, sensor):
+    def forward(self, x, sensor, spatial_embedder):
         # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
         xt_filtered = x[:, :, self.temp_dim:]  # Filter out temporal features
         # print(f"Filtered x shape: {xt_filtered.shape}")
         x_time = xt_filtered[:, :, 0:self.temp_dim]  # Extract temporal features
         # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4])
 
-        spatial_embedder = self._gat_spatial_embedder(xt_filtered)
+        # spatial_embedder = self._gat_spatial_embedder(xt_filtered)
 
         tokenized_data = self._tokenizer(xt_filtered, spatial_embedder, x_time, sensor)
 

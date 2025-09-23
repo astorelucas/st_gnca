@@ -18,6 +18,7 @@ class DataBase:
         self.G = nx.Graph()
 
         self.data = pd.read_csv(kwargs.get('data_file','data.csv'), engine='pyarrow')
+        self.data = self.data.iloc[:, :-5]
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
 
