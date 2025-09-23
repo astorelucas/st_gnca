@@ -15,23 +15,24 @@ from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
                      sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.embeddings.value import ScalingTransform
+from st_gnca.training.evaluate import EarlyStopping
 
 print("Setting up model configuration...")
 # Setup device and data types
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/synthetic/'
+DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 # Usage example
 if __name__ == "__main__":
 
     data = DataBase(
-        edges_file=DATA_PATH + 'edge.csv',
-        data_file=DATA_PATH + 'data.csv'
+        edges_file=DATA_PATH + 'edges.csv',
+        data_file=DATA_PATH + 'pems03_pre.csv'
     )
     print("DataBase initialized.")
-    horizon = 3
+    horizon = 3  # Predicting 6 time steps ahead
 
     batches = BatchBuilder(data, batch_size=32, sequence_len=12, horizon=horizon)
     print("BatchBuilder initialized.")
@@ -59,7 +60,7 @@ if __name__ == "__main__":
         ),
         slstm_block=sLSTMBlockConfig(
             slstm=sLSTMLayerConfig(
-                backend="vanilla", 
+                backend="cuda", 
                 num_heads=4,         # Balance capacity/compute
                 conv1d_kernel_size=3
             ),
@@ -71,7 +72,7 @@ if __name__ == "__main__":
         context_length=input_len,     # Match input_len
         num_blocks=4,                 # Deeper stack
         embedding_dim=hidden_dim,
-        slstm_at=[1, 3]               # Add sLSTM at blocks 1 and 3
+        slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
 )
     cell_model = xLSTMForecast(
         input_dim= input_len,  # Each sensor and its neighbors
@@ -91,18 +92,22 @@ if __name__ == "__main__":
     )
     print("Model configuration completed.")
     print("Starting training...")
+    
 
     scaler = ScalingTransform(data.sensor_data_raw, device=DEVICE, dtype=DTYPE)
 
+    print(f"Device available: {DEVICE}")
+
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
-                                    optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.001), 
+                                    optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
                                     criterion=nn.MSELoss(),
-                                    num_epochs=2,
+                                    num_epochs=4,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
-                                    scaler=scaler)
+                                    scaler=scaler,
+                                    val_loader=batches.get_val_loader())
     
     print("Training completed.")
 

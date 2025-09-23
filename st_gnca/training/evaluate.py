@@ -3,7 +3,8 @@ import pandas as pd
 import torch
 
 def MAPE(y, y_pred):
-  return torch.mean((y - y_pred).abs() / (y.abs() + 1e-8))
+  eps = 1e-3
+  return torch.mean(torch.abs((y - y_pred) / (torch.abs(y) + eps)))
 
 def SMAPE(y, y_pred):
   return torch.mean(2*(y - y_pred).abs() / (y.abs() + y_pred.abs() + 1e-8))

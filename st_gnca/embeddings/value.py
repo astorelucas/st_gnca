@@ -34,6 +34,8 @@ class ValueEmbedding(nn.Module):
       self.embedder = ZTransform(data, **kwargs)
     elif self.value_embedding_type == 'scaling':
       self.embedder = ScalingTransform(data, **kwargs)
+    elif self.value_embedding_type == 'minmax':
+      self.embedder = MinMaxTransform(data, **kwargs)
     else:
       raise ValueError("Unknown embedder type!")
     
@@ -50,6 +52,26 @@ class ValueEmbedding(nn.Module):
 
     return self
 
+class MinMaxTransform(nn.Module):
+    def __init__(self, data, **kwargs):
+        super().__init__()
+        self.min_val = data.min()
+        self.max_val = data.max()
+        self.range = self.max_val - self.min_val
+
+    def forward(self, x):
+        """
+        Performs Min-Max normalization.
+        """
+        # Add a small epsilon to prevent division by zero in case of a zero range.
+        return (x - self.min_val) / (self.range + 1e-8)
+
+    def denormalize(self, x_normalized):
+        """
+        Reverts the Min-Max normalization.
+        """
+        return x_normalized * self.range + self.min_val
+    
 class ScalingTransform(nn.Module):
     def __init__(self, data, **kwargs):
         super().__init__()
