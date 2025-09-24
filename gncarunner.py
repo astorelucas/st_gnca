@@ -16,15 +16,19 @@ from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.embeddings.value import ScalingTransform, MinMaxTransform
 
-print("Setting up model configuration...")
 # Setup device and data types
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+DEVICE = (
+    torch.device('cuda') if torch.cuda.is_available()
+    else torch.device('mps') if torch.backends.mps.is_available()
+    else torch.device('cpu')
+)
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
 DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 # Usage example
 if __name__ == "__main__":
+    print("Setting up model configuration...")
 
     data = DataBase(
         edges_file=DATA_PATH + 'edges.csv',
