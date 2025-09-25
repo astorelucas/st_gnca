@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GATConv
+from st_gnca.embeddings.value import MinMaxTransform
 
 class GraphCellularAutomata(nn.Module):
   def __init__(self, **kwargs):
@@ -15,6 +16,7 @@ class GraphCellularAutomata(nn.Module):
     self.temp_dim = kwargs.get('temp_dim', 4)  # Default temporal embedding
     self.dropout = kwargs.get('dropout', 0.15)
     self.heads = kwargs.get('heads', 1)
+    self.scaler = kwargs.get('scaler', MinMaxTransform(torch.tensor([0.0, 1.0])))
 
     # Use CPU for GAT when running on MPS (PyG is limited on MPS)
     self._set_gat_device(self.device)
@@ -76,11 +78,19 @@ class GraphCellularAutomata(nn.Module):
 
     xt_filtered = X_batch[:, :, self.temp_dim:]  # [B, T, N] torch.Size([32, 12, 370])
     spatial_embedder = self._gat_spatial_embedder(xt_filtered)
+    self.scaler.fit(spatial_embedder)
+    spatial_embedder = self.scaler.forward(spatial_embedder)
+    #give me an example of spatial_embedder
+    # print(f"Spatial embedder example: {spatial_embedder[0, 0, 0, :]}")  # Example for the first batc÷h, first time step, first node
     # print(f"Spatial embedder shape: {spatial_embedder.shape}") #torch.Size([32, 12, 370, 64])
 
     # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
     # print(f"Filtered x shape: {xt_filtered.shape}")
     x_time = xt_filtered[:, :, 0:self.temp_dim]  # Extract temporal features
+    self.scaler.fit(x_time)
+    x_time = self.scaler.forward(x_time)
+    #give me an example of x_time
+    # print(f"Time features example:÷ {x_time[0, 0, :]}")  # Example for the first batch, first time step
     # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4]) 
 
     for sensor in self.graph.nodes:

@@ -2,7 +2,6 @@ import torch
 import networkx as nx
 import pandas as pd
 import numpy as np
-import os
 
 from torch_geometric.data import Data
 from st_gnca.embeddings.temporal import SinusoidalTemporalEncoding
@@ -83,7 +82,7 @@ class DataBase:
         # Extract sensor data and convert to tensor
 
         self.value_embedding = ValueEmbedding(self.sensor_data_raw, 
-                                               value_embedding_type='scaling',
+                                               value_embedding_type='minmax',
                                                dtype=self.dtype, 
                                                device=self.device)
 
@@ -97,29 +96,8 @@ class DataBase:
         # print(f"Combined features shape: {combined.shape}") # ([26208, 358, 5])
         return combined
 
-class SlidingWindowDataset(torch.utils.data.Dataset):
-    """
-    Lazily yields sliding windows (X, Y) without materializing all sequences.
-    Assumes data shape: [T, ...]; returns:
-      X: [seq_len, ...], Y: [horizon, ...]
-    """
-    def __init__(self, data: torch.Tensor, seq_len: int, horizon: int):
-        self.data = data
-        self.seq_len = seq_len
-        self.horizon = horizon
-        T = data.size(0)
-        self.length = max(0, T - seq_len - horizon)
-
-    def __len__(self):
-        return self.length
-
-    def __getitem__(self, idx):
-        x = self.data[idx: idx + self.seq_len]
-        y = self.data[idx + self.seq_len: idx + self.seq_len + self.horizon]
-        return x, y
-
 class BatchBuilder:
-    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.1,device=DEVICE, dtype=DTYPE, **kwargs):
+    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.1, device=DEVICE, dtype=DTYPE, **kwargs):
         self.data_tokenized = data.concat_features()
         self.batch_size = batch_size
         self.device = device
@@ -130,15 +108,13 @@ class BatchBuilder:
         self.train_split = train_split
         self.val_split = val_split
         self.horizon = kwargs.get('horizon', 0)
-        self.use_lazy = kwargs.get('use_lazy', False)  # keep _create_sequences by default
+
+        # Validate splits
+        assert self.train_split + self.val_split < 1.0, "Train + validation split must be less than 1.0"
 
         self.train_data, self.val_data, self.test_data = self._split_data()
 
-
     def _split_data(self):
-
-        assert self.train_split + self.val_split < 1.0
-
         train_end = int(self.num_samples * self.train_split)
         val_end = int(self.num_samples * (self.train_split + self.val_split))
 
@@ -147,60 +123,36 @@ class BatchBuilder:
         test_data = self.data_tokenized[val_end:]
 
         return train_data, val_data, test_data
-    
-    def _create_sequences(self, data):
-        X, Y = [], []
-        num_timesteps = data.size(0)
-
-        for i in range(num_timesteps - self.sequence_len - self.horizon):
-            input_window = data[i:i+self.sequence_len]  # input seq
-            target_window = data[i+self.sequence_len : i+self.sequence_len+self.horizon]  # output seq
-            X.append(input_window)
-            Y.append(target_window)
-
-        # X: [num_samples, seq_len, num_features]
-        # Y: [num_samples, horizon, num_features]
-        X = torch.stack(X) if len(X) > 0 else torch.empty((0,), dtype=self.dtype, device=self.device)
-        Y = torch.stack(Y) if len(Y) > 0 else torch.empty((0,), dtype=self.dtype, device=self.device)
-        return X.to(dtype=self.dtype, device=self.device), Y.to(dtype=self.dtype, device=self.device)
-
-    def _loader_opts(self, shuffle: bool):
-        # pin_memory helps on CUDA only; not useful on MPS/CPU
-        pin = torch.cuda.is_available()
-        num_workers = max(1, (os.cpu_count() or 2) // 2)
-        opts = dict(
-            batch_size=self.batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            pin_memory=pin,
-            persistent_workers=(num_workers > 0),
-            drop_last=False,
-        )
-        # prefetch_factor is valid only if num_workers > 0
-        if num_workers > 0:
-            opts['prefetch_factor'] = 2
-        return opts
 
     def get_train_loader(self):
-        if self.use_lazy:
-            ds = SlidingWindowDataset(self.train_data, self.sequence_len, self.horizon)
-            return torch.utils.data.DataLoader(ds, **self._loader_opts(shuffle=True))
-        X, Y = self._create_sequences(self.train_data)
-        dataset = torch.utils.data.TensorDataset(X, Y)
-        return torch.utils.data.DataLoader(dataset, **self._loader_opts(shuffle=True))
+        dataset = SlidingWindowDataset(self.train_data, self.sequence_len, self.horizon)
+        return torch.utils.data.DataLoader(
+            dataset, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True
+        )
 
     def get_val_loader(self):
-        if self.use_lazy:
-            ds = SlidingWindowDataset(self.val_data, self.sequence_len, self.horizon)
-            return torch.utils.data.DataLoader(ds, **self._loader_opts(shuffle=False))
-        X, Y = self._create_sequences(self.val_data)
-        dataset = torch.utils.data.TensorDataset(X, Y)
-        return torch.utils.data.DataLoader(dataset, **self._loader_opts(shuffle=False))
+        dataset = SlidingWindowDataset(self.val_data, self.sequence_len, self.horizon)
+        return torch.utils.data.DataLoader(
+            dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True
+        )
 
     def get_test_loader(self):
-        if self.use_lazy:
-            ds = SlidingWindowDataset(self.test_data, self.sequence_len, self.horizon)
-            return torch.utils.data.DataLoader(ds, **self._loader_opts(shuffle=False))
-        X, Y = self._create_sequences(self.test_data)
-        dataset = torch.utils.data.TensorDataset(X, Y)
-        return torch.utils.data.DataLoader(dataset, **self._loader_opts(shuffle=False))
+        dataset = SlidingWindowDataset(self.test_data, self.sequence_len, self.horizon)
+        return torch.utils.data.DataLoader(
+            dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True
+        )
+
+class SlidingWindowDataset(torch.utils.data.Dataset):
+    def __init__(self, data, seq_len, horizon):
+        self.data = data
+        self.seq_len = seq_len
+        self.horizon = horizon
+        self.num_samples = data.size(0) - seq_len - horizon
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        x = self.data[idx:idx + self.seq_len]
+        y = self.data[idx + self.seq_len:idx + self.seq_len + self.horizon]
+        return x, y

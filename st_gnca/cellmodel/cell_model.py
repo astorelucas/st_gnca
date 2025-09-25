@@ -29,12 +29,6 @@ class xLSTMForecast(nn.Module):
         # Dropout layer
         self.dropout = nn.Dropout(p=dropout)
 
-        # # GAT Layer
-        # self.gat_layer = GATConv(
-        #             in_channels=1,
-        #             out_channels=hidden_dim
-        #         ).to(dtype=dtype)
-        
         self.input_mapper = nn.Linear(input_dim, hidden_dim).to(dtype=dtype)
         
         # XLSTM Block Stack
@@ -78,10 +72,22 @@ class xLSTMForecast(nn.Module):
         # --- 2. Filter input tensors for the neighborhood ---
         raw_f = raw_features[:, :, all_indices].unsqueeze(-1)               # (B, S, N, 1)
         gat_f = gat_features[:, :, all_indices, :]                          # (B, S, N, H)
-        combined = torch.cat((raw_f, gat_f), dim=-1)                        # (B, S, N, 1+H)
         
-        # --- 3. Pad with zeros if necessary ---
+        # Preallocate the combined tensor
+        B, S, N, H = gat_f.size()
+        combined = torch.empty((B, S, N, 1 + H), dtype=raw_f.dtype, device=raw_f.device)
+
+        # Fill the combined tensor
+        combined[..., :1] = raw_f
+        combined[..., 1:] = gat_f
+        
+        # --- 3. Pad with -1 if necessary ---
         pad_nodes = self.max_graph_degree - num_neighbors
+
+        # always create mask with max_degree+1 length
+        mask = torch.zeros(self.max_graph_degree + 1, dtype=torch.bool, device=raw_features.device)
+        mask[: len(all_indices)] = True  # valid nodes = True, padded = False
+
         if pad_nodes > 0:
             pad = torch.full(
                 (combined.size(0), combined.size(1), pad_nodes, combined.size(-1)),
@@ -91,80 +97,19 @@ class xLSTMForecast(nn.Module):
             )
             combined = torch.cat((combined, pad), dim=2)         # (B, S, max_deg+1, 1+H)
 
-            # Extend mask
-            mask = torch.cat([mask, torch.zeros(pad_nodes, dtype=torch.bool, device=mask.device)])
-
-
         # --- 4. Flatten neighborhood features and concat with temporal ---
-        flat = combined.flatten(start_dim=2)                                # (B, S, max_deg*(1+H))
-        final = torch.cat((temporal_features, flat), dim=-1)                # (B, S, T + max_deg*(1+H)) 
+        # Preallocate the final tensor
+        B, S, T = temporal_features.size()
+        final = torch.empty((B, S, T + self.max_graph_degree * (1 + H)), dtype=combined.dtype, device=combined.device)
+
+        # Fill the temporal features directly
+        final[..., :T] = temporal_features
+
+        # Flatten the combined tensor and fill the rest of the final tensor
+        flat = combined.flatten(start_dim=2)  # (B, S, max_deg*(1+H))
+        final[..., T:] = flat
+
         return final
-
-    # def _tokenizer(
-    #     self,
-    #     raw_features: torch.Tensor,
-    #     gat_features: torch.Tensor,
-    #     temporal_features: torch.Tensor,
-    #     target_sensor_idx: int
-    # ):
-    #     """
-    #     Finds a target sensor and its neighbors, then aggregates and pads raw, temporal,
-    #     and GAT features into a single tensor for that neighborhood.
-    #     """
-
-    #     # --- 1. Identify the nodes in the neighborhood (all in torch, no numpy) ---
-    #     mask_src = self.edge_index[0] == target_sensor_idx
-    #     mask_dst = self.edge_index[1] == target_sensor_idx
-    #     neighbors = torch.cat([self.edge_index[1, mask_src], self.edge_index[0, mask_dst]])
-    #     neighbors = torch.unique(neighbors)  # remove duplicates
-
-    #     num_neighbors = neighbors.size(0)
-    #     assert 0 < num_neighbors <= self.max_graph_degree, \
-    #         f"Sensor {target_sensor_idx} has {num_neighbors} neighbors, which exceeds max graph degree {self.max_graph_degree} or is zero."
-
-    #     # include the target itself at index 0
-    #     all_indices = torch.cat([torch.tensor([target_sensor_idx], device=neighbors.device), neighbors])
-
-    #     # --- 2. Filter input tensors for the neighborhood ---
-    #     raw_f = raw_features[:, :, all_indices].unsqueeze(-1)               # (B, S, N, 1)
-    #     gat_f = gat_features[:, :, all_indices, :]                          # (B, S, N, H)
-    #     combined = torch.cat((raw_f, gat_f), dim=-1)                        # (B, S, N, 1+H)
-
-    #     # --- 3. Pad with zeros if necessary ---
-    #     pad_nodes = self.max_graph_degree - num_neighbors
-    #     if pad_nodes > 0:
-    #         pad = torch.zeros(
-    #             (combined.size(0), combined.size(1), pad_nodes, combined.size(-1)),
-    #             dtype=combined.dtype,
-    #             device=combined.device
-    #         )
-    #         combined = torch.cat((combined, pad), dim=2)                    # (B, S, max_deg, 1+H)
-
-    #     # --- 4. Flatten neighborhood features and concat with temporal ---
-    #     flat = combined.flatten(start_dim=2)                                # (B, S, max_deg*(1+H))
-    #     final = torch.cat((temporal_features, flat), dim=-1)                # (B, S, T + max_deg*(1+H))
-
-    #     return final
-
-
-    # def _gat_spatial_embedder(self, xt_filtered):
-    #     sequence_out = []
-    #     for t in range(xt_filtered.size(1)):
-    #         #extract time step t
-    #         xt = xt_filtered[:, t, :]
-    #         # print(f"Time step {t}, xt shape before GAT: {xt.shape}") #torch.Size([32, 9])
-
-    #         # Apply GAT layer
-    #         xt = xt.unsqueeze(-1)
-    #         xt_flattened = xt.contiguous().view(-1, 1)
-    #         gat_out = self.gat_layer(xt_flattened, self.edge_index)
-    #         gat_out = gat_out.view(xt.size(0), -1, self.gat_layer.out_channels)
-
-    #         sequence_out.append(gat_out)
-
-    #     spatial_embedder = torch.stack(sequence_out, dim=1)
-    #     # print(f"Sequence out shape after GAT: {spatial_embedder.shape}") #torch.Size([32, 10, 5, 64])
-    #     return spatial_embedder
     
     def forward(self, x, sensor, spatial_embedder, x_time):
 
