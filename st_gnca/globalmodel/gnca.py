@@ -41,29 +41,29 @@ class GraphCellularAutomata(nn.Module):
     else:
         self.gat_device = main_device if isinstance(main_device, torch.device) else torch.device('cpu')
 
-  def _gat_spatial_embedder(self, xt_filtered):
-        """
-        xt_filtered: [B, T, N] where N = num_nodes (features already filtered to one channel per node)
-        Applies GAT per time step and per batch on the chosen GAT device, then returns on self.device.
-        """
-        sequence_out = []
-        B, T, N = xt_filtered.size()
-        for t in range(T):
-            # xt_t: [B, N, 1] on gat_device
-            xt_t = xt_filtered[:, t, :].to(self.gat_device).unsqueeze(-1)
+  def _gat_spatial_embedder(self, xt_filtered: torch.Tensor):
+      """
+      xt_filtered: [B, T, N] where N = num_nodes (features already filtered to one channel per node)
+      Applies GAT per time step and per batch on the chosen GAT device,
+      then returns embeddings on self.device.
 
-            # Apply GAT per batch to respect edge_index (no batch flattening)
-            outs_b = []
-            for b in range(B):
-                x_b = xt_t[b]            # [N, 1]
-                gat_out_b = self.gat_layer(x_b, self.edge_index)  # [N, hidden_dim * heads]
-                outs_b.append(gat_out_b.unsqueeze(0))             # [1, N, H]
-            gat_out = torch.cat(outs_b, dim=0).to(self.dtype)     # [B, N, H] on gat_device
+      Output: [B, T, N, H]
+      """
+      B, T, N = xt_filtered.size()
 
-            sequence_out.append(gat_out.to(self.device, non_blocking=True))
+      # Flatten batch and time into one "super batch"
+      xt_bt = xt_filtered.reshape(B * T, N, 1).to(self.gat_device)  # [B*T, N, 1]
 
-        spatial_embedder = torch.stack(sequence_out, dim=1)  # [B, T, N, H] on self.device
-        return spatial_embedder
+      # Apply GAT per (B,T) snapshot
+      outs = []
+      for i in range(B * T):
+          gat_out = self.gat_layer(xt_bt[i], self.edge_index)  # [N, H]
+          outs.append(gat_out.unsqueeze(0))                    # [1, N, H]
+
+      gat_out_all = torch.cat(outs, dim=0)                     # [B*T, N, H]
+      gat_out_all = gat_out_all.view(B, T, N, -1)              # [B, T, N, H]
+
+      return gat_out_all.to(self.device, dtype=self.dtype, non_blocking=True) #torch.Size([32, 12, 358, 64])
 
   def call_model(self, X_batch, **kwargs):
     outputs = []
@@ -71,22 +71,27 @@ class GraphCellularAutomata(nn.Module):
     X_batch = X_batch.to(self.device)
     self.cell_model.X_batch_graph = X_batch
 
-    mode = kwargs.get('mode', 'train')
-    if mode == 'train':
-      self.cell_model.train()
-    else:
-      self.cell_model.eval()
+    self.cell_model.train(mode=(kwargs.get('mode', 'train') == 'train'))
 
-    xt_filtered = X_batch[:, :, self.temp_dim:]  # [B, T, N]
+
+    xt_filtered = X_batch[:, :, self.temp_dim:]  # [B, T, N] torch.Size([32, 12, 370])
     spatial_embedder = self._gat_spatial_embedder(xt_filtered)
+    # print(f"Spatial embedder shape: {spatial_embedder.shape}") #torch.Size([32, 12, 370, 64])
+
+    # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
+    # print(f"Filtered x shape: {xt_filtered.shape}")
+    x_time = xt_filtered[:, :, 0:self.temp_dim]  # Extract temporal features
+    # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4]) 
 
     for sensor in self.graph.nodes:
-      y_pred = self.cell_model(X_batch, sensor, spatial_embedder)
+      y_pred = self.cell_model(xt_filtered, sensor, spatial_embedder, x_time)
       outputs.append(y_pred)
 
-    stacked_outputs = torch.stack(outputs)         # [N, B, H_out]
-    final_output = stacked_outputs.permute(1, 0, 2).squeeze(2)
-    return final_output
+    # stacked_outputs = torch.stack(outputs)         # [N, B, H_out]
+    # final_output = stacked_outputs.permute(1, 0, 2).squeeze(2)
+    stacked_outputs = torch.stack(outputs, dim=1)
+    # print(f"Outputs shape: {stacked_outputs.shape}") # [B, N, H_out] torch.Size([32, 358, 3])
+    return stacked_outputs
 
   def to(self, device):
         # Update main device

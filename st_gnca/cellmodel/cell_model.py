@@ -83,12 +83,17 @@ class xLSTMForecast(nn.Module):
         # --- 3. Pad with zeros if necessary ---
         pad_nodes = self.max_graph_degree - num_neighbors
         if pad_nodes > 0:
-            pad = torch.zeros(
+            pad = torch.full(
                 (combined.size(0), combined.size(1), pad_nodes, combined.size(-1)),
+                fill_value=-1.0,
                 dtype=combined.dtype,
-                device=combined.device
+                device=combined.device,
             )
-            combined = torch.cat((combined, pad), dim=2)                    # (B, S, max_deg, 1+H)
+            combined = torch.cat((combined, pad), dim=2)         # (B, S, max_deg+1, 1+H)
+
+            # Extend mask
+            mask = torch.cat([mask, torch.zeros(pad_nodes, dtype=torch.bool, device=mask.device)])
+
 
         # --- 4. Flatten neighborhood features and concat with temporal ---
         flat = combined.flatten(start_dim=2)                                # (B, S, max_deg*(1+H))
@@ -161,16 +166,11 @@ class xLSTMForecast(nn.Module):
     #     # print(f"Sequence out shape after GAT: {spatial_embedder.shape}") #torch.Size([32, 10, 5, 64])
     #     return spatial_embedder
     
-    def forward(self, x, sensor, spatial_embedder):
-        # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
-        xt_filtered = x[:, :, self.temp_dim:]  # Filter out temporal features
-        # print(f"Filtered x shape: {xt_filtered.shape}")
-        x_time = xt_filtered[:, :, 0:self.temp_dim]  # Extract temporal features
-        # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4])
+    def forward(self, x, sensor, spatial_embedder, x_time):
 
         # spatial_embedder = self._gat_spatial_embedder(xt_filtered)
 
-        tokenized_data = self._tokenizer(xt_filtered, spatial_embedder, x_time, sensor)
+        tokenized_data = self._tokenizer(x, spatial_embedder, x_time, sensor)
 
         # print(f"xLSTM input shape before mapping: {tokenized_data.shape}")
         mapped_x = self.input_mapper(tokenized_data)

@@ -176,7 +176,7 @@ def from_np_to_datetime(np_dt):
     return pd.Timestamp(np_dt).to_pydatetime()
 
 class SinusoidalTemporalEncoding(nn.Module):
-    def __init__(self, dates, emb_dim=4, device=None, dtype=torch.float32):
+    def __init__(self, dates, emb_dim, device=None, dtype=torch.float32):
         super().__init__()
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.dtype = dtype

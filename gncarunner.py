@@ -91,7 +91,8 @@ if __name__ == "__main__":
         graph=data.G,
         cell_model=cell_model,
         device=DEVICE,
-        dtype=DTYPE
+        dtype=DTYPE,
+        temp_dim=temporal_emb_dim,
     )
     print("Model configuration completed.")
     print("Starting training...")
@@ -104,7 +105,7 @@ if __name__ == "__main__":
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
-                                    criterion=nn.MSELoss(),
+                                    criterion=nn.L1Loss(),
                                     num_epochs=4,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
@@ -116,7 +117,7 @@ if __name__ == "__main__":
 
     evaluate_gnca_model(gnca, 
                         batches.get_val_loader(), 
-                        criterion=nn.MSELoss(),
+                        criterion=nn.L1Loss(),
                         temp_dim=temporal_emb_dim,
                         device=DEVICE,
                         scaler=scaler)
