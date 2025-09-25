@@ -85,21 +85,18 @@ if __name__ == "__main__":
         graph=data.G,
         cfg=xlstm_config
     )
-
+    
     print(f"GNCA model initialization")
     gnca = GraphCellularAutomata(
         graph=data.G,
         cell_model=cell_model,
         device=DEVICE,
         dtype=DTYPE,
-        temp_dim=temporal_emb_dim,
+        temp_dim=temporal_emb_dim
     )
+
     print("Model configuration completed.")
     print("Starting training...")
-    
-
-    scaler = MinMaxTransform(data.sensor_data_raw, device=DEVICE, dtype=DTYPE)
-
     print(f"Device available: {DEVICE}")
 
     avg_loss, training_losses = train_gnca_model(gnca, 
@@ -110,7 +107,7 @@ if __name__ == "__main__":
                                     device=DEVICE,
                                     return_history=True,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
-                                    scaler=scaler,
+                                    scaler=data.value_embedding.embedder,
                                     val_loader=batches.get_val_loader())
     
     print("Training completed.")
@@ -120,7 +117,7 @@ if __name__ == "__main__":
                         criterion=nn.L1Loss(),
                         temp_dim=temporal_emb_dim,
                         device=DEVICE,
-                        scaler=scaler)
+                        scaler=data.value_embeddriding.embedder)
     print("Evaluation completed.")
 
     plot_training_loss(
@@ -134,7 +131,7 @@ if __name__ == "__main__":
                     temp_dim=temporal_emb_dim,
                     device=DEVICE,
                     save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth',
-                    scaler=scaler
+                    scaler=data.value_embedding.embedder
                     )
     
     print(results)
