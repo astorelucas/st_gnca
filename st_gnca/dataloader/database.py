@@ -53,6 +53,7 @@ class DataBase:
                                                              dtype=self.dtype)
 
         self.temporal_features = self.temporal_embedding.all()
+         
 
         self.max_graph_degree = max(dict(self.G.degree()).values())
 
@@ -85,9 +86,10 @@ class DataBase:
                                                value_embedding_type='minmax',
                                                dtype=self.dtype, 
                                                device=self.device)
-
-        sensor_data = self.value_embedding(torch.tensor(self.sensor_data_raw, dtype=self.dtype, device=self.device))
-
+        
+        sensor_data = self.value_embedding.forward(torch.tensor(self.sensor_data_raw, dtype=self.dtype, device=self.device))
+        # print(f"Sensor data shape: {sensor_data.shape}") # (26208, 64)
+        # print(f"Sensor data sample: {sensor_data[:10, :10]}")
         return sensor_data
 
     def concat_features(self):

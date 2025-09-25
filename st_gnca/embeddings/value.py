@@ -24,17 +24,15 @@ def build_scaler(train_ds, device="cuda", sample_size=100_000):
     return scaler
 
 class ValueEmbedding(nn.Module):
-    def __init__(self, data, **kwargs):
+    def __init__(self, data, value_embedding_type, **kwargs):
         super().__init__()
         self.device = kwargs.get('device', DEVICE)
         self.dtype = kwargs.get('dtype', torch.float32)
-        self.value_embedding_type = kwargs.get('value_embedding_type', 'normalization')
+        self.value_embedding_type = value_embedding_type
 
         if self.value_embedding_type == 'normalization':
-            # Assuming ZTransform exists and has a fit method
             self.embedder = ZTransform(device=self.device, dtype=self.dtype)
         elif self.value_embedding_type == 'scaling':
-            # Assuming ScalingTransform exists and has a fit method
             self.embedder = ScalingTransform(device=self.device, dtype=self.dtype)
         elif self.value_embedding_type == 'minmax':
             self.embedder = MinMaxTransform(device=self.device, dtype=self.dtype)

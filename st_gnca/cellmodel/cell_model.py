@@ -98,17 +98,8 @@ class xLSTMForecast(nn.Module):
             combined = torch.cat((combined, pad), dim=2)         # (B, S, max_deg+1, 1+H)
 
         # --- 4. Flatten neighborhood features and concat with temporal ---
-        # Preallocate the final tensor
-        B, S, T = temporal_features.size()
-        final = torch.empty((B, S, T + self.max_graph_degree * (1 + H)), dtype=combined.dtype, device=combined.device)
-
-        # Fill the temporal features directly
-        final[..., :T] = temporal_features
-
-        # Flatten the combined tensor and fill the rest of the final tensor
-        flat = combined.flatten(start_dim=2)  # (B, S, max_deg*(1+H))
-        final[..., T:] = flat
-
+        flat = combined.flatten(start_dim=2)                                # (B, S, max_deg*(1+H))
+        final = torch.cat((temporal_features, flat), dim=-1)                # (B, S, T + max_deg*(1+H)) 
         return final
     
     def forward(self, x, sensor, spatial_embedder, x_time):
