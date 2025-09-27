@@ -22,8 +22,6 @@ class DataBase:
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
 
-        self.num_sensors = self.G.number_of_nodes()
-
         self.sensor_ids = list(self.data.columns.drop('timestamp').astype(int).values)
 
         self.sensor_id_map, self.reverse_sensor_id_map = self._create_sensor_id_map()
@@ -42,6 +40,7 @@ class DataBase:
 
         self.edge_index = torch.tensor(list(self.G.edges)).t().contiguous().to(self.device)
         # print(f"Edge Index shape: {self.edge_index.shape}") # Should be [2, num_edges]
+        self.num_sensors = self.G.number_of_nodes()
 
         self.edge_weight = torch.tensor([self.G[u][v]['weight'] for u,v in self.G.edges()]).to(self.device)
 
@@ -99,7 +98,7 @@ class DataBase:
         return combined
 
 class BatchBuilder:
-    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.1, device=DEVICE, dtype=DTYPE, **kwargs):
+    def __init__(self, data, batch_size, sequence_len, train_split=0.6, val_split=0.2, device=DEVICE, dtype=DTYPE, **kwargs):
         self.data_tokenized = data.concat_features()
         self.batch_size = batch_size
         self.device = device
@@ -129,19 +128,19 @@ class BatchBuilder:
     def get_train_loader(self):
         dataset = SlidingWindowDataset(self.train_data, self.sequence_len, self.horizon)
         return torch.utils.data.DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True
+            dataset, batch_size=self.batch_size, shuffle=True, num_workers=0, pin_memory=False
         )
 
     def get_val_loader(self):
         dataset = SlidingWindowDataset(self.val_data, self.sequence_len, self.horizon)
         return torch.utils.data.DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True
+            dataset, batch_size=self.batch_size, shuffle=False, num_workers=0, pin_memory=False
         )
 
     def get_test_loader(self):
         dataset = SlidingWindowDataset(self.test_data, self.sequence_len, self.horizon)
         return torch.utils.data.DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True
+            dataset, batch_size=self.batch_size, shuffle=False, num_workers=0, pin_memory=False
         )
 
 class SlidingWindowDataset(torch.utils.data.Dataset):

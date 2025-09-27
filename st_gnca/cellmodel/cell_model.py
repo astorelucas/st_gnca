@@ -4,6 +4,7 @@ import numpy as np
 
 from xlstm import xLSTMBlockStack
 from torch_geometric.nn import GATConv
+from st_gnca.tokenizer.tokenizer import NeighborhoodTokenizer
 
 
 DEVICE = (
@@ -25,13 +26,21 @@ class xLSTMForecast(nn.Module):
         self.graph = kwargs.get('graph', None)
         self.max_graph_degree = max(dict(self.graph.degree()).values())
         self.temp_dim = kwargs.get('temp_dim', 4)  # Default temporal embedding dimension
+        
+        self.tokenizer = NeighborhoodTokenizer(
+            graph=self.graph,
+            edge_index=self.edge_index,
+            temp_dim=self.temp_dim,
+            hidden_dim=self.hidden_dim,
+            dtype=self.dtype
+        ).to(device=device, dtype=dtype)
 
         # Dropout layer
         self.dropout = nn.Dropout(p=dropout)
 
-        self.input_mapper = nn.Linear(input_dim, hidden_dim).to(dtype=dtype)
+        self.input_mapper = nn.Linear(134, hidden_dim).to(dtype=dtype)
         
-        # XLSTM Block Stack
+        # XLSTM Block Stack torch.Size([32, 12, 64])
         self.xlstm = xLSTMBlockStack(cfg).to(dtype=dtype)
 
         # Output projection
@@ -40,87 +49,30 @@ class xLSTMForecast(nn.Module):
         # Ensure all parameters are on correct device and dtype
         self.to(device=device, dtype=dtype)
 
-        src, dst = self.edge_index
-        self.neighbors_list = [[] for _ in range(self.graph.number_of_nodes())]
-        for s, d in zip(src.tolist(), dst.tolist()):
-            self.neighbors_list[s].append(d)
-            self.neighbors_list[d].append(s)
 
-    def _tokenizer(
-        self,
-        raw_features: torch.Tensor,
-        gat_features: torch.Tensor,
-        temporal_features: torch.Tensor,
-        target_sensor_idx: int
-    ):
-        """
-        Finds a target sensor and its neighbors, then aggregates and pads raw, temporal,
-        and GAT features into a single tensor for that neighborhood.
-        """
-
-        # --- 1. Identify the nodes in the neighborhood (all in torch, no numpy) ---
-        neighbors = torch.tensor(self.neighbors_list[target_sensor_idx], device=self.edge_index.device)
-        neighbors = torch.unique(neighbors)  # remove duplicates
-
-        num_neighbors = neighbors.size(0)
-        assert 0 < num_neighbors <= self.max_graph_degree, \
-            f"Sensor {target_sensor_idx} has {num_neighbors} neighbors, which exceeds max graph degree {self.max_graph_degree} or is zero."
-        
-        # include the target itself at index 0
-        all_indices = torch.cat([torch.tensor([target_sensor_idx], device=neighbors.device), neighbors])
-
-        # --- 2. Filter input tensors for the neighborhood ---
-        raw_f = raw_features[:, :, all_indices].unsqueeze(-1)               # (B, S, N, 1)
-        gat_f = gat_features[:, :, all_indices, :]                          # (B, S, N, H)
-        
-        # Preallocate the combined tensor
-        B, S, N, H = gat_f.size()
-        combined = torch.empty((B, S, N, 1 + H), dtype=raw_f.dtype, device=raw_f.device)
-
-        # Fill the combined tensor
-        combined[..., :1] = raw_f
-        combined[..., 1:] = gat_f
-        
-        # --- 3. Pad with -1 if necessary ---
-        pad_nodes = self.max_graph_degree - num_neighbors
-
-        # always create mask with max_degree+1 length
-        mask = torch.zeros(self.max_graph_degree + 1, dtype=torch.bool, device=raw_features.device)
-        mask[: len(all_indices)] = True  # valid nodes = True, padded = False
-
-        if pad_nodes > 0:
-            pad = torch.full(
-                (combined.size(0), combined.size(1), pad_nodes, combined.size(-1)),
-                fill_value=-1.0,
-                dtype=combined.dtype,
-                device=combined.device,
-            )
-            combined = torch.cat((combined, pad), dim=2)         # (B, S, max_deg+1, 1+H)
-
-        # --- 4. Flatten neighborhood features and concat with temporal ---
-        flat = combined.flatten(start_dim=2)                                # (B, S, max_deg*(1+H))
-        final = torch.cat((temporal_features, flat), dim=-1)                # (B, S, T + max_deg*(1+H)) 
-        return final
-    
     def forward(self, x, sensor, spatial_embedder, x_time):
+        
 
-        # spatial_embedder = self._gat_spatial_embedder(xt_filtered)
+        tokenized_data = self.tokenizer.forward(x, spatial_embedder, x_time, sensor)
+        # print(f"Tokenized data shape: {tokenized_data.shape}")  # Example output: torch.Size([32, 12, 134])
+        # print(f"Tokenized data: {tokenized_data[0, 0, :]}")  # Example output: tensor([...])
 
-        tokenized_data = self._tokenizer(x, spatial_embedder, x_time, sensor)
-
-        # print(f"xLSTM input shape before mapping: {tokenized_data.shape}")
+        # print(f"xLSTM input shape before mapping: {tokenized_data.shape}") #torch.Size([32, 12, 134])
         mapped_x = self.input_mapper(tokenized_data)
-        # print(f"xLSTM input shape: {mapped_x.shape}") #[batch, seq_len, 4+max_d*65]
+        # print(f"xLSTM input shape: {mapped_x.shape}") #torch.Size([32, 12, 64])
 
         # Apply dropout to the input
         xlstm_in = self.dropout(mapped_x)
+        # print(f"xLSTM input shape after dropout: {xlstm_in.shape}")
 
         xlstm_out = self.xlstm(xlstm_in)
+        # print(f"xLSTM output shape/: {xlstm_out.shape}") #torch.Size([32, 12, 64])
 
         # Apply dropout to the XLSTM output before the final projection
         xlstm_output = self.dropout(xlstm_out)
 
         prediction = self.output_proj(xlstm_output[:, -1, :])
+        # print(f"Prediction shape: {prediction.shape}") #torch.Size([32, 3]) 
 
         # print(f"Prediction shape: {prediction.shape}")
         return prediction

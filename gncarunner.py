@@ -35,7 +35,7 @@ if __name__ == "__main__":
         data_file=DATA_PATH + 'pems03_pre.csv'
     )
     print("DataBase initialized.")
-    horizon = 3  # Predicting 6 time steps ahead
+    horizon = 3  # Predicting 1 time step ahead
 
     batches = BatchBuilder(data, batch_size=32, sequence_len=12, horizon=horizon)
     print("BatchBuilder initialized.")
@@ -47,11 +47,10 @@ if __name__ == "__main__":
     temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
     max_graph_degree = data.max_graph_degree
-    feature_dim = temporal_emb_dim + ((hidden_dim + 1) * (max_graph_degree+1))
-
+    # feature_dim = temporal_emb_dim + ((hidden_dim + 1) * (max_graph_degree+1))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
-    input_len = feature_dim
+    # input_len = feature_dim
 
     print(f"Cell model initialization")
     xlstm_config = xLSTMBlockStackConfig(
@@ -72,15 +71,16 @@ if __name__ == "__main__":
                 act_fn="gelu"
             )
         ),
-        context_length=input_len,     # Match input_len
+        context_length=134,     # Match input_len
         num_blocks=4,                 # Deeper stack
-        embedding_dim=hidden_dim,
+        embedding_dim=64,
         slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
 )
+    
     cell_model = xLSTMForecast(
-        input_dim= input_len,  # Each sensor and its neighbors
+        input_dim= 134,  # Each sensor and its neighbors
         output_dim=output_dim,
-        hidden_dim=64,
+        hidden_dim=hidden_dim,
         edge_index=data.edge_index,
         graph=data.G,
         cfg=xlstm_config

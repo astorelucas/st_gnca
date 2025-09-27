@@ -77,19 +77,19 @@ class GraphCellularAutomata(nn.Module):
 
 
     xt_filtered = X_batch[:, :, self.temp_dim:]  # [B, T, N] torch.Size([32, 12, 370])
+    # print(f"Filtered x shape: {xt_filtered.shape}")
+
     spatial_embedder = self._gat_spatial_embedder(xt_filtered)
     self.scaler.fit(spatial_embedder)
     spatial_embedder = self.scaler.forward(spatial_embedder)
-    #give me an example of spatial_embedder
     # print(f"Spatial embedder example: {spatial_embedder[0, 0, 0, :]}")  # Example for the first batc÷h, first time step, first node
     # print(f"Spatial embedder shape: {spatial_embedder.shape}") #torch.Size([32, 12, 370, 64])
 
     # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
-    # print(f"Filtered x shape: {xt_filtered.shape}")
+    
     x_time = xt_filtered[:, :, 0:self.temp_dim]  # Extract temporal features
     self.scaler.fit(x_time)
     x_time = self.scaler.forward(x_time)
-    #give me an example of x_time
     # print(f"Time features example:÷ {x_time[0, 0, :]}")  # Example for the first batch, first time step
     # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4]) 
 
@@ -101,6 +101,7 @@ class GraphCellularAutomata(nn.Module):
     # final_output = stacked_outputs.permute(1, 0, 2).squeeze(2)
     stacked_outputs = torch.stack(outputs, dim=1)
     # print(f"Outputs shape: {stacked_outputs.shape}") # [B, N, H_out] torch.Size([32, 358, 3])
+    # print("Finishing GNCA forward pass.")
     return stacked_outputs
 
   def to(self, device):
