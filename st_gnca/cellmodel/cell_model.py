@@ -14,10 +14,10 @@ DEVICE = (
 )
 
 class xLSTMForecast(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim, edge_index, cfg,
+    def __init__(self, feature_dim, output_dim, hidden_dim, edge_index, cfg,
                  dropout=0.15, device=DEVICE, dtype=torch.float32, **kwargs):
         super().__init__()
-        self.input_dim = input_dim
+        self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
         self.device = device
@@ -38,7 +38,7 @@ class xLSTMForecast(nn.Module):
         # Dropout layer
         self.dropout = nn.Dropout(p=dropout)
 
-        self.input_mapper = nn.Linear(134, hidden_dim).to(dtype=dtype)
+        self.input_mapper = nn.Linear(feature_dim, hidden_dim).to(dtype=dtype)
         
         # XLSTM Block Stack torch.Size([32, 12, 64])
         self.xlstm = xLSTMBlockStack(cfg).to(dtype=dtype)

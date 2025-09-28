@@ -4,6 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
 
+
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def build_scaler(train_ds, device="cuda", sample_size=100_000):
@@ -30,7 +31,7 @@ class ValueEmbedding(nn.Module):
         self.dtype = kwargs.get('dtype', torch.float32)
         self.value_embedding_type = value_embedding_type
 
-        if self.value_embedding_type == 'normalization':
+        if self.value_embedding_type == 'ztransform':
             self.embedder = ZTransform(device=self.device, dtype=self.dtype)
         elif self.value_embedding_type == 'scaling':
             self.embedder = ScalingTransform(device=self.device, dtype=self.dtype)
@@ -153,44 +154,79 @@ class ScalingTransform(nn.Module):
 
         return self
 
+def nanstd(x, dim=None, keepdim=False):
+    mask = ~torch.isnan(x)
+    count = mask.sum(dim=dim, keepdim=True).clamp(min=1)
+    masked_x = torch.where(mask, x, torch.zeros_like(x))
+
+    mean = masked_x.sum(dim=dim, keepdim=True) / count
+    var = ((torch.where(mask, x, mean) - mean) ** 2).sum(dim=dim, keepdim=True) / count
+    std = torch.sqrt(var)
+
+    if not keepdim and dim is not None:
+        std = std.squeeze(dim)
+    return std
+
+
+import torch
+import torch.nn as nn
+
+def nanstd(x, dim=None, keepdim=False):
+    mask = ~torch.isnan(x)
+    count = mask.sum(dim=dim, keepdim=True).clamp(min=1)
+    masked_x = torch.where(mask, x, torch.zeros_like(x))
+
+    mean = masked_x.sum(dim=dim, keepdim=True) / count
+    var = ((torch.where(mask, x, mean) - mean) ** 2).sum(dim=dim, keepdim=True) / count
+    std = torch.sqrt(var)
+
+    if not keepdim and dim is not None:
+        std = std.squeeze(dim)
+    return std
+
+
 class ZTransform(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
         self.device = kwargs.get('device', 'cpu')
         self.dtype = kwargs.get('dtype', torch.float32)
-        # We don't want these to be part of the state dict at initialization
-        self.register_buffer('mu', None)
-        self.register_buffer('sigma', None)
+
+        self.register_buffer('mu', torch.tensor(float('nan'), device=self.device, dtype=self.dtype))
+        self.register_buffer('sigma', torch.tensor(float('nan'), device=self.device, dtype=self.dtype))
 
     def fit(self, data):
         if not isinstance(data, torch.Tensor):
             data = torch.tensor(data, dtype=self.dtype, device=self.device)
-        self.mu = torch.nanmean(data).detach()
-        self.sigma = torch.std(torch.nan_to_num(data, 0, 0, 0)).detach()
-        # Handle the edge case of zero standard deviation
-        if self.sigma == 0:
-            self.sigma = torch.tensor(1.0, dtype=self.dtype, device=self.device).detach()
+        else:
+            data = data.to(self.device, self.dtype)
+
+        # mean/std per feature (last dim)
+        dims = tuple(range(data.ndim - 1))
+
+        if hasattr(torch, "nanmean"):
+            self.mu = torch.nanmean(data, dim=dims).detach().to(self.device, self.dtype)
+        else:
+            self.mu = data[~torch.isnan(data)].mean(dim=dims).detach().to(self.device, self.dtype)
+
+        if hasattr(torch, "nanstd"):
+            self.sigma = torch.nanstd(data, dim=dims).detach().to(self.device, self.dtype)
+        else:
+            self.sigma = nanstd(data, dim=dims).detach().to(self.device, self.dtype)
+
+        # avoid zeros
+        eps = torch.tensor(1.0, device=self.device, dtype=self.dtype)
+        self.sigma = torch.where(self.sigma == 0, eps, self.sigma)
 
     def forward(self, x):
-        if self.mu is None or self.sigma is None:
+        if torch.isnan(self.mu).any() or torch.isnan(self.sigma).any():
             raise RuntimeError("ZTransform has not been fitted yet.")
-        return (x - self.mu) / self.sigma
+        mu = self.mu.to(x.device, x.dtype)
+        sigma = self.sigma.to(x.device, x.dtype)
+        return (x - mu) / sigma
 
-    def to(self, *args, **kwargs):
-        # The super().to() call handles moving the registered buffers (mu, sigma)
-        super().to(*args, **kwargs)
-        # Update internal attributes for consistency if needed
-        # args[0] is typically the device or dtype
-        if args and isinstance(args[0], str):
-            self.device = args[0]
-        if args and isinstance(args[0], torch.dtype):
-            self.dtype = args[0]
-        
-        # kwargs can also specify device and dtype
-        if 'device' in kwargs:
-            self.device = kwargs['device']
-        if 'dtype' in kwargs:
-            self.dtype = kwargs['dtype']
-
-        return self
-  
+    def denormalize(self, x):
+        if torch.isnan(self.mu).any() or torch.isnan(self.sigma).any():
+            raise RuntimeError("ZTransform has not been fitted yet.")
+        mu = self.mu.to(x.device, x.dtype)
+        sigma = self.sigma.to(x.device, x.dtype)
+        return (x * sigma) + mu

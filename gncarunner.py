@@ -37,7 +37,15 @@ if __name__ == "__main__":
     print("DataBase initialized.")
     horizon = 3  # Predicting 1 time step ahead
 
-    batches = BatchBuilder(data, batch_size=32, sequence_len=12, horizon=horizon)
+    batches = BatchBuilder(data, 
+                           batch_size=32, 
+                           sequence_len=12, 
+                           horizon=horizon,
+                           val_ratio=0.2,
+                           train_ratio=0.6,
+                           device=DEVICE,
+                           dtype=DTYPE)
+    
     print("BatchBuilder initialized.")
 
     print("Starting model's configuration...")
@@ -47,7 +55,7 @@ if __name__ == "__main__":
     temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
     max_graph_degree = data.max_graph_degree
-    # feature_dim = temporal_emb_dim + ((hidden_dim + 1) * (max_graph_degree+1))
+    feature_dim = temporal_emb_dim + (2*(hidden_dim) + 2*(value_emb_dim))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
     # input_len = feature_dim
@@ -71,14 +79,14 @@ if __name__ == "__main__":
                 act_fn="gelu"
             )
         ),
-        context_length=134,     # Match input_len
+        context_length=feature_dim,     # Match input_len
         num_blocks=4,                 # Deeper stack
-        embedding_dim=64,
+        embedding_dim=hidden_dim,
         slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
 )
     
     cell_model = xLSTMForecast(
-        input_dim= 134,  # Each sensor and its neighbors
+        feature_dim=feature_dim,  # Each sensor and its neighbors
         output_dim=output_dim,
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
@@ -117,7 +125,7 @@ if __name__ == "__main__":
                         criterion=nn.L1Loss(),
                         temp_dim=temporal_emb_dim,
                         device=DEVICE,
-                        scaler=data.value_embeddriding.embedder)
+                        scaler=data.value_embedding.embedder)
     print("Evaluation completed.")
 
     plot_training_loss(

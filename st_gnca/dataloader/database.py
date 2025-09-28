@@ -82,7 +82,7 @@ class DataBase:
         # Extract sensor data and convert to tensor
 
         self.value_embedding = ValueEmbedding(self.sensor_data_raw, 
-                                               value_embedding_type='minmax',
+                                               value_embedding_type='ztransform',
                                                dtype=self.dtype, 
                                                device=self.device)
         
@@ -98,20 +98,30 @@ class DataBase:
         return combined
 
 class BatchBuilder:
-    def __init__(self, data, batch_size, sequence_len, train_split=0.6, val_split=0.2, device=DEVICE, dtype=DTYPE, **kwargs):
-        self.data_tokenized = data.concat_features()
+    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.2, device=DEVICE, dtype=DTYPE, **kwargs):
+        self.data = data
         self.batch_size = batch_size
         self.device = device
         self.dtype = dtype
-        self.num_samples = data.sensor_data.size(0)
-        self.num_sensors = data.num_sensors
         self.sequence_len = sequence_len
-        self.train_split = train_split
-        self.val_split = val_split
         self.horizon = kwargs.get('horizon', 0)
 
         # Validate splits
-        assert self.train_split + self.val_split < 1.0, "Train + validation split must be less than 1.0"
+        if train_split + val_split >= 1.0:
+            raise ValueError("Train + validation split must be less than 1.0")
+        self.train_split = train_split
+        self.val_split = val_split
+
+        # Tokenize and split the data
+        self.data_tokenized = self.data.concat_features()
+        self.num_samples = self.data_tokenized.size(0)
+
+        # Ensure the dataset is large enough for sequence length and horizon
+        if self.num_samples <= self.sequence_len + self.horizon:
+            raise ValueError(
+                f"Dataset is too small for the given sequence length ({self.sequence_len}) and horizon ({self.horizon}). "
+                f"Data size: {self.num_samples}, Required: {self.sequence_len + self.horizon}"
+            )
 
         self.train_data, self.val_data, self.test_data = self._split_data()
 
@@ -144,16 +154,24 @@ class BatchBuilder:
         )
 
 class SlidingWindowDataset(torch.utils.data.Dataset):
-    def __init__(self, data, seq_len, horizon):
-        self.data = data
+    def __init__(self, data, seq_len, horizon, device=DEVICE):
+        self.data = data.to(device)
         self.seq_len = seq_len
         self.horizon = horizon
+        self.device = device
+
+        # Ensure the dataset has enough samples
         self.num_samples = data.size(0) - seq_len - horizon
+        if self.num_samples <= 0:
+            raise ValueError(
+                f"Dataset is too small for the given sequence length ({seq_len}) and horizon ({horizon}). "
+                f"Data size: {data.size(0)}, Required: {seq_len + horizon}"
+            )
 
     def __len__(self):
         return self.num_samples
 
     def __getitem__(self, idx):
-        x = self.data[idx:idx + self.seq_len]
-        y = self.data[idx + self.seq_len:idx + self.seq_len + self.horizon]
+        x = self.data[idx:idx + self.seq_len].to(self.device)
+        y = self.data[idx + self.seq_len:idx + self.seq_len + self.horizon].to(self.device)
         return x, y

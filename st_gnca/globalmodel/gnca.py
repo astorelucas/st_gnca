@@ -1,22 +1,28 @@
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GATConv
-from st_gnca.embeddings.value import MinMaxTransform
+from st_gnca.embeddings.value import ZTransform
+
+DEVICE = (
+    torch.device('cuda') if torch.cuda.is_available()
+    else torch.device('mps') if torch.backends.mps.is_available()
+    else torch.device('cpu')
+)
 
 class GraphCellularAutomata(nn.Module):
   def __init__(self, **kwargs):
     super().__init__()
     self.graph = kwargs.get('graph', None)
     self.cell_model = kwargs.get('cell_model', None)
-    self.device = kwargs.get('device', torch.device('cpu'))
+    self.device = kwargs.get('device', DEVICE)
     self.dtype = kwargs.get('dtype', torch.float32)
     self.hidden_dim = self.cell_model.hidden_dim
-    self.input_dim = self.cell_model.input_dim
+    self.feature_dim = self.cell_model.feature_dim
     self.output_dim = self.cell_model.output_dim
     self.temp_dim = kwargs.get('temp_dim', 4)  # Default temporal embedding
     self.dropout = kwargs.get('dropout', 0.15)
     self.heads = kwargs.get('heads', 1)
-    self.scaler = kwargs.get('scaler', MinMaxTransform(torch.tensor([0.0, 1.0])))
+    self.scaler = kwargs.get('scaler', ZTransform())
 
     # Use CPU for GAT when running on MPS (PyG is limited on MPS)
     self._set_gat_device(self.device)
@@ -74,7 +80,6 @@ class GraphCellularAutomata(nn.Module):
     self.cell_model.X_batch_graph = X_batch
 
     self.cell_model.train(mode=(kwargs.get('mode', 'train') == 'train'))
-
 
     xt_filtered = X_batch[:, :, self.temp_dim:]  # [B, T, N] torch.Size([32, 12, 370])
     # print(f"Filtered x shape: {xt_filtered.shape}")
