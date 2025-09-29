@@ -20,7 +20,7 @@ class GraphCellularAutomata(nn.Module):
     self.feature_dim = self.cell_model.feature_dim
     self.output_dim = self.cell_model.output_dim
     self.temp_dim = kwargs.get('temp_dim', 4)  # Default temporal embedding
-    self.dropout = kwargs.get('dropout', 0.15)
+    self.dropout = kwargs.get('dropout', 0.2)
     self.heads = kwargs.get('heads', 1)
     self.scaler = kwargs.get('scaler', ZTransform())
 

@@ -15,7 +15,7 @@ DEVICE = (
 
 class xLSTMForecast(nn.Module):
     def __init__(self, feature_dim, output_dim, hidden_dim, edge_index, cfg,
-                 dropout=0.15, device=DEVICE, dtype=torch.float32, **kwargs):
+                 dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
         super().__init__()
         self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim

@@ -50,6 +50,7 @@ if __name__ == "__main__":
 
     print("Starting model's configuration...")
     hidden_dim = 64
+    gat_heads = 8
     output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
@@ -100,7 +101,8 @@ if __name__ == "__main__":
         cell_model=cell_model,
         device=DEVICE,
         dtype=DTYPE,
-        temp_dim=temporal_emb_dim
+        temp_dim=temporal_emb_dim,
+        heads=gat_heads
     )
 
     print("Model configuration completed.")
