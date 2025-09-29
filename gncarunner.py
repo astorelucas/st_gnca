@@ -56,7 +56,7 @@ if __name__ == "__main__":
     temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
     max_graph_degree = data.max_graph_degree
-    feature_dim = temporal_emb_dim + (2*(hidden_dim) + 2*(value_emb_dim))
+    feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads) + 2*(value_emb_dim))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
     # input_len = feature_dim
