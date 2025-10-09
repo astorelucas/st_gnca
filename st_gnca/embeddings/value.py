@@ -167,10 +167,6 @@ def nanstd(x, dim=None, keepdim=False):
         std = std.squeeze(dim)
     return std
 
-
-import torch
-import torch.nn as nn
-
 def nanstd(x, dim=None, keepdim=False):
     mask = ~torch.isnan(x)
     count = mask.sum(dim=dim, keepdim=True).clamp(min=1)
