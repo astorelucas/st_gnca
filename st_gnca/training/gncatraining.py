@@ -8,6 +8,7 @@ from tqdm.auto import tqdm
 import numpy as np
 
 
+
 def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, scaler=None, val_loader=None, temp_dim=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
@@ -24,6 +25,8 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             optimizer, mode='min', factor=0.5, patience=3
         )
 
+    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.0001, path=save_path)
+
     for epoch in range(num_epochs):
         gnca.train()
         total_loss = 0.0
@@ -34,24 +37,24 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
             # Batch X shape: torch.Size([32, 10, 358]), Batch y shape: torch.Size([32, 358])
             # Batch X shape: torch.Size([32, 12, 9]), Batch y shape: torch.Size([32, 3, 9])
-            print(f"Batch X shape: {X_batch.shape}, Batch y shape: {y_batch.shape}")
+            # print(f"Batch X shape: {X_batch.shape}, Batch y shape: {y_batch.shape}")
             
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
             # print(f"X_batch shape: {X_batch.shape}, y_batch shape: {y_batch.shape}")
 
             outputs = gnca.call_model(X_batch, mode='train')
-            print(f"Outputs shape: {outputs.shape}")
+            # print(f"Outputs shape: {outputs.shape}")
             # Outputs shape: torch.Size([32, 5, 3])
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
-            print(f"output_dim: {output_dim}")
+            # print(f"output_dim: {output_dim}")
             y_target = y_batch[..., -output_dim:]
-            print(f"y_target shape: {y_target.shape}")
+            # print(f"y_target shape: {y_target.shape}")
 
             outputs = outputs.permute(0, 2, 1)
-            print(f"Outputs permuted shape: {outputs.shape}")
+            # print(f"Outputs permuted shape: {outputs.shape}")
 
             # print("Example output :", outputs[0])
             # print("Example target :", y_target[0])
@@ -77,6 +80,12 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             val_loss = evaluate_gnca_model2(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
             print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
             scheduler.step(val_loss)
+
+        early_stopping(val_loss, gnca)
+
+        if early_stopping.early_stop:
+            print("Early stopping triggered")
+            break
 
     avg_loss = sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
 
@@ -312,3 +321,46 @@ def evaluate_gnca_model2(
         return avg_loss, metrics
 
     return avg_loss
+
+
+class EarlyStopping:
+    def __init__(self, patience=5, verbose=False, delta=0, path='checkpoint.pt'):
+        """
+        Args:
+            patience (int): How long to wait after last improvement.
+            verbose (bool): If True, prints a message for each improvement.
+            delta (float): Minimum change to qualify as an improvement.
+            path (str): Path to save the best model.
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = float('inf')
+        self.delta = delta
+        self.path = path
+
+    def __call__(self, val_loss, model):
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            if self.verbose:
+                print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        """Saves model when validation loss decreases."""
+        if self.verbose:
+            print(f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...")
+        torch.save(model.state_dict(), self.path)
+        self.val_loss_min = val_loss
