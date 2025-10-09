@@ -19,7 +19,7 @@ class DataBase:
 
         # Load sensor data
         self.data = pd.read_csv(kwargs.get('data_file', 'data.csv'), engine='pyarrow')
-        self.data = self.data.iloc[:, :-5]
+        self.data = self.data.iloc[:, :-1]
 
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
@@ -75,6 +75,7 @@ class DataBase:
         return forward_map, reverse_map
 
     def _load_data(self):
+        # print(f" sensor_data_raw {self.sensor_data_raw.shape}")
         self.value_embedding = ValueEmbedding(
             self.sensor_data_raw,
             value_embedding_type='ztransform',
@@ -87,6 +88,8 @@ class DataBase:
         return sensor_data
 
     def concat_features(self):
+        # print(f"temporal_features {self.temporal_features.shape}")
+        # print(f"sensor_data {self.sensor_data.shape}")
         combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
         return combined
 
@@ -123,8 +126,11 @@ class BatchBuilder:
         val_end = int(self.num_samples * (self.train_split + self.val_split))
 
         train_data = self.data_tokenized[:train_end]
+        # print(f"Train data shape: {train_data.shape}")
         val_data = self.data_tokenized[train_end:val_end]
+        # print(f"Validation data shape: {val_data.shape}")
         test_data = self.data_tokenized[val_end:]
+        # print(f"Test data shape: {test_data.shape}")
 
         return train_data, val_data, test_data
 

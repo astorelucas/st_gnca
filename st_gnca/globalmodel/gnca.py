@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch_geometric.nn import GATConv
 from st_gnca.embeddings.value import ZTransform
 from torch_geometric.data import Data, Batch
-from st_gnca.embeddings.spatial import SpatialEmbedding
+from st_gnca.embeddings.spatial import SpatialEmbedding, MinMaxTransform, ScalingTransform
 from torch_geometric.utils import k_hop_subgraph
 
 DEVICE = (
@@ -45,6 +45,7 @@ class GraphCellularAutomata(nn.Module):
         out_channels=self.hidden_dim,
         dropout=self.dropout,
         heads=self.heads,
+        add_self_loops=True
     ).to(dtype=self.dtype, device=self.gat_device)
 
     # ensure edge_index is long and on the same device as the GAT layer
@@ -194,19 +195,22 @@ class GraphCellularAutomata(nn.Module):
     # print(f"GAT embedder shape: {gat_embedder.shape}") #torch.Size([32, 12, 370, 64])
 
     # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
-    x_time = xt_filtered[:, :, 0:self.temp_dim]  # Extract temporal features
+    x_time = X_batch[:, :, 0:self.temp_dim]  # Extract temporal features
     self.scaler.fit(x_time)
     x_time = self.scaler.forward(x_time)
     # print(f"Time features example:÷ {x_time[0, 0, :]}")  # Example for the first batch, first time step
     # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4])
+    # print(sorted(self.graph.nodes))
 
     for sensor in sorted(self.graph.nodes):
+    #   print(f"Processing sensor {sensor}/{self.graph.number_of_nodes()-1}")
       gat_embedder, subset_nodes = self._subgat_spatial_embedder(encoder, sensor)
       self.scaler.fit(gat_embedder)
       gat_embedder = self.scaler.forward(gat_embedder)
       # print(f"GAT embedder shape for sensor {sensor}: {gat_embedder.shape}") #torch.Size([32, 12, N_sub, 64])
       y_pred = self.cell_model(sensor, gat_embedder, x_time, subset_nodes)
       outputs.append(y_pred)
+    # print(f"outputs list length: {len(outputs)}") # Should be equal to number of sensors
 
     # stacked_outputs = torch.stack(outputs)         # [N, B, H_out]
     # final_output = stacked_outputs.permute(1, 0, 2).squeeze(2)

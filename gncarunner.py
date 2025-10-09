@@ -6,7 +6,6 @@ import numpy as np
 from st_gnca.training.gncatraining import (
     train_gnca_model, 
     plot_training_loss, 
-    evaluate_gnca_model,
     test_gnca_model
 )
 from st_gnca.dataloader.database import DataBase, BatchBuilder
@@ -15,6 +14,7 @@ from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
                      sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.embeddings.value import ScalingTransform, MinMaxTransform
+from st_gnca.training.evaluate import HybridLoss
 
 # Setup device and data types
 DEVICE = (
@@ -24,7 +24,7 @@ DEVICE = (
 )
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
+DATA_PATH = DEFAULT_PATH + 'data/PEMS08/'
 
 # Usage example
 if __name__ == "__main__":
@@ -40,15 +40,16 @@ if __name__ == "__main__":
     '''
 
     data = DataBase(
-        edges_file=DATA_PATH + 'edges.csv',
-        data_file=DATA_PATH + 'pems03_pre.csv'
+        edges_file=DATA_PATH + 'edges_normalized.csv',
+        data_file=DATA_PATH + 'data_imputed.csv'
     )
     print("DataBase initialized.")
-    horizon = 3  # Predicting 1 time step ahead
+    horizon = 1  # Predicting 1 time step ahead
+    sequence_len = 12  # Using past 12 time steps
 
     batches = BatchBuilder(data, 
                            batch_size=32, 
-                           sequence_len=12, 
+                           sequence_len=sequence_len, 
                            horizon=horizon,
                            val_ratio=0.2,
                            train_ratio=0.6,
@@ -58,7 +59,7 @@ if __name__ == "__main__":
     print("BatchBuilder initialized.")
 
     print("Starting model's configuration...")
-    hidden_dim = 32
+    hidden_dim = 8
     gat_heads = 1
     output_dim = horizon
 
@@ -71,38 +72,38 @@ if __name__ == "__main__":
     # input_len = feature_dim
 
     print(f"Cell model initialization")
-#     xlstm_config = xLSTMBlockStackConfig(
-#         mlstm_block=mLSTMBlockConfig(
-#             mlstm=mLSTMLayerConfig(
-#                 conv1d_kernel_size=4, 
-#                 num_heads=2           # More heads for complex temporal patterns
-#             )
-#         ),
-#         slstm_block=sLSTMBlockConfig(
-#             slstm=sLSTMLayerConfig(
-#                 backend="vanilla", 
-#                 num_heads=2,         # Balance capacity/compute
-#                 conv1d_kernel_size=4
-#             ),
-#             feedforward=FeedForwardConfig(
-#                 proj_factor=2.0,      # Wider FFN (original: 1.0)
-#                 act_fn="gelu" # trocar pra swish
-#             )
-#         ),
-#         context_length=feature_dim,     # Match input_len
-#         num_blocks=4,                 # Deeper stack
-#         embedding_dim=hidden_dim,
-#         slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
-# )
+    xlstm_config = xLSTMBlockStackConfig(
+        mlstm_block=mLSTMBlockConfig(
+            mlstm=mLSTMLayerConfig(
+                conv1d_kernel_size=4, 
+                num_heads=4           # More heads for complex temporal patterns
+            )
+        ),
+        slstm_block=sLSTMBlockConfig(
+            slstm=sLSTMLayerConfig(
+                backend="cuda" if torch.cuda.is_available() else "vanilla",
+                num_heads=2,         # Balance capacity/compute
+                conv1d_kernel_size=4
+            ),
+            feedforward=FeedForwardConfig(
+                proj_factor=2.0,      # Wider FFN (original: 1.0)
+                act_fn="swish" # trocar pra swish
+            )
+        ),
+        context_length=sequence_len,     # Match input_len
+        num_blocks=6,                 # Deeper stack
+        embedding_dim=hidden_dim,
+        slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
+)
     
-    # cell_model = xLSTMForecast(
-    #     feature_dim=feature_dim,  # Each sensor and its neighbors
-    #     output_dim=output_dim,
-    #     hidden_dim=hidden_dim,
-    #     edge_index=data.edge_index,
-    #     graph=data.G,
-    #     cfg=xlstm_config
-    # )
+    cell_model = xLSTMForecast(
+        feature_dim=feature_dim,  # Each sensor and its neighbors
+        output_dim=output_dim,
+        hidden_dim=hidden_dim,
+        edge_index=data.edge_index,
+        graph=data.G,
+        cfg=xlstm_config
+    )
 
     cell_model = LSTMForecast(
         feature_dim=feature_dim,
@@ -131,7 +132,7 @@ if __name__ == "__main__":
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
-                                    criterion=nn.L1Loss(),
+                                    criterion=HybridLoss(alpha=0.8),
                                     num_epochs=4,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
@@ -140,14 +141,6 @@ if __name__ == "__main__":
                                     val_loader=batches.get_val_loader())
     
     print("Training completed.")
-
-    evaluate_gnca_model(gnca, 
-                        batches.get_val_loader(), 
-                        criterion=nn.L1Loss(),
-                        temp_dim=temporal_emb_dim,
-                        device=DEVICE,
-                        scaler=data.value_embedding.embedder)
-    print("Evaluation completed.")
 
     plot_training_loss(
         training_losses,
@@ -164,4 +157,5 @@ if __name__ == "__main__":
                     )
     
     print(results)
-    print("Testing completed.")
+
+print("Testing completed.")

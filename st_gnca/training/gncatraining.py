@@ -3,7 +3,10 @@ import pandas as pd
 import os
 import matplotlib.pyplot as plt
 from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_training_losses_csv
+from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from tqdm.auto import tqdm
+import numpy as np
+
 
 def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, scaler=None, val_loader=None, temp_dim=None):
     """
@@ -31,21 +34,24 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
             # Batch X shape: torch.Size([32, 10, 358]), Batch y shape: torch.Size([32, 358])
             # Batch X shape: torch.Size([32, 12, 9]), Batch y shape: torch.Size([32, 3, 9])
-            # print(f"Batch X shape: {X_batch.shape}, Batch y shape: {y_batch.shape}")
+            print(f"Batch X shape: {X_batch.shape}, Batch y shape: {y_batch.shape}")
             
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
+            # print(f"X_batch shape: {X_batch.shape}, y_batch shape: {y_batch.shape}")
 
             outputs = gnca.call_model(X_batch, mode='train')
-            # print(f"Outputs shape: {outputs.shape}")
+            print(f"Outputs shape: {outputs.shape}")
             # Outputs shape: torch.Size([32, 5, 3])
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
+            print(f"output_dim: {output_dim}")
             y_target = y_batch[..., -output_dim:]
-            outputs = outputs
+            print(f"y_target shape: {y_target.shape}")
 
             outputs = outputs.permute(0, 2, 1)
+            print(f"Outputs permuted shape: {outputs.shape}")
 
             # print("Example output :", outputs[0])
             # print("Example target :", y_target[0])
@@ -68,7 +74,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
         # Step scheduler on validation loss if available
         if scheduler is not None:
-            val_loss = evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
+            val_loss = evaluate_gnca_model2(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
             print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
             scheduler.step(val_loss)
 
@@ -247,3 +253,62 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
     return {'metrics': metrics, 'preds': preds, 'targets': targets}
 
 
+def evaluate_gnca_model2(
+    model,
+    data_loader,
+    criterion,
+    temp_dim,
+    device,
+    scaler=None,
+    compute_metrics=False
+):
+    model.eval()
+    total_loss = 0.0
+    n_batches = 0
+    all_preds, all_targets = [], []
+
+    with torch.no_grad():
+        for X_batch, y_batch in data_loader:
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            outputs = model.call_model(X_batch, mode="eval")
+
+            # Align temporal dimension with target
+            output_dim = outputs.shape[-2]
+            y_target = y_batch[..., -output_dim:]
+
+            outputs = outputs.permute(0, 2, 1)
+
+            loss = criterion(outputs, y_target)
+            total_loss += loss.item()
+            n_batches += 1
+
+            if compute_metrics:
+                # Denormalize if scaler is provided
+                if scaler is not None:
+                    preds = scaler.embedder.denormalize(outputs.detach().cpu())
+                    targets = scaler.embedder.denormalize(y_target.detach().cpu())
+                else:
+                    preds = outputs.detach().cpu()
+                    targets = y_target.detach().cpu()
+
+                all_preds.append(preds.numpy())
+                all_targets.append(targets.numpy())
+
+    avg_loss = total_loss / n_batches if n_batches > 0 else 0.0
+
+    if compute_metrics and len(all_preds) > 0:
+        all_preds = np.concatenate(all_preds, axis=0)
+        all_targets = np.concatenate(all_targets, axis=0)
+
+        mae = mean_absolute_error(all_targets.flatten(), all_preds.flatten())
+        rmse = root_mean_squared_error(all_targets.flatten(), all_preds.flatten(), squared=False)
+        mape = np.mean(np.abs((all_targets.flatten() - all_preds.flatten()) / all_targets.flatten())) * 100
+        smape = 100 * np.mean(2 * np.abs(all_preds.flatten() - all_targets.flatten()) / 
+                             (np.abs(all_targets.flatten()) + np.abs(all_preds.flatten()) + 1e-8))
+
+        metrics = {"mae": mae, "rmse": rmse, "mape": mape, "smape": smape}
+        return avg_loss, metrics
+
+    return avg_loss

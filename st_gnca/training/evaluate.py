@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch
+from torch import nn
 
 def MAPE(y, y_pred):
   eps = 1e-3
@@ -51,3 +52,12 @@ def save_training_losses_csv(training_losses, save_path):
     df.to_csv(save_path, index=False)
     print(f"Training losses saved to: {save_path}")
     return save_path
+
+class HybridLoss(nn.Module):
+    def __init__(self, alpha=0.8):
+        super().__init__()
+        self.alpha = alpha
+        self.l1 = nn.L1Loss()
+        self.mse = nn.MSELoss()
+    def forward(self, pred, target):
+        return self.alpha * self.l1(pred, target) + (1 - self.alpha) * self.mse(pred, target)

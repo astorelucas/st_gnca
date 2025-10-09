@@ -71,6 +71,10 @@ class xLSTMForecast(nn.Module):
 
         # Apply dropout to the XLSTM output before the final projection
         xlstm_output = self.dropout(xlstm_out)
+        # print(f"xlstm_output {xlstm_output.shape}") # torch.Size([32, 12, 32])
+        # print(f"xlstm_output {xlstm_output.dtype}")
+        # The prediction is based on the final time step's output
+        # xlstm_output[:, -1, :] gets the hidden state for the last time step
 
         prediction = self.output_proj(xlstm_output[:, -1, :])
         # print(f"Prediction shape: {prediction.shape}") #torch.Size([32, 3]) 
@@ -109,6 +113,7 @@ class LSTMForecast(nn.Module):
         self.graph = kwargs.get('graph', None)
         self.max_graph_degree = max(dict(self.graph.degree()).values())
         self.temp_dim = kwargs.get('temp_dim', 4)
+        self.num_layers = kwargs.get('num_layers', 4)
 
         self.tokenizer = NeighborhoodTokenizer(
             graph=self.graph,
@@ -130,7 +135,7 @@ class LSTMForecast(nn.Module):
         self.lstm = nn.LSTM(
             input_size=self.hidden_dim,
             hidden_size=self.hidden_dim,
-            num_layers=1,  # You can increase this for deeper models
+            num_layers=self.num_layers,  # You can increase this for deeper models
             batch_first=True,
             dropout=dropout, # Dropout is applied to the output of each LSTM layer except the last one.
             dtype=self.dtype

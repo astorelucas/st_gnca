@@ -32,7 +32,9 @@ class SpatialEmbedding(nn.Module):
     self.graph = graph
 
     M = nx.adjacency_matrix(graph).todense()
-    laplacian = SpectralEmbedding(n_components=laplacian_components) #, affinity='precomputed')
+    laplacian = SpectralEmbedding(n_components=laplacian_components, 
+                                  affinity="precomputed"
+                                  )
     laplacian_map = laplacian.fit_transform(M)
 
     self.length = 0
@@ -41,7 +43,6 @@ class SpatialEmbedding(nn.Module):
         emb = laplacian_map[node,:]
         tmp_dict[str(node)] = torch.tensor(emb, dtype = self.dtype, device = self.device)
         self.length += 1
-
     self.embeddings = TensorDict(tmp_dict)
 
   def forward(self, node):
