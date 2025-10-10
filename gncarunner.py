@@ -1,7 +1,4 @@
 import torch
-from torch import nn
-import pandas as pd
-import numpy as np
 
 from st_gnca.training.gncatraining import (
     train_gnca_model, 
@@ -9,12 +6,12 @@ from st_gnca.training.gncatraining import (
     test_gnca_model
 )
 from st_gnca.dataloader.database import DataBase, BatchBuilder
-from st_gnca.cellmodel.cell_model import xLSTMForecast, LSTMForecast
+from st_gnca.cellmodel.cell_model import xLSTMForecast, LSTMForecast, TFTForecast
 from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
                      sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
-from st_gnca.embeddings.value import ScalingTransform, MinMaxTransform
 from st_gnca.training.evaluate import HybridLoss
+from datetime import datetime
 
 # Setup device and data types
 DEVICE = (
@@ -96,21 +93,30 @@ if __name__ == "__main__":
         slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
 )
     
-    cell_model = xLSTMForecast(
+    # cell_model = xLSTMForecast(
+    #     feature_dim=feature_dim,  # Each sensor and its neighbors
+    #     output_dim=output_dim,
+    #     hidden_dim=hidden_dim,
+    #     edge_index=data.edge_index,
+    #     graph=data.G,
+    #     cfg=xlstm_config
+    # )
+
+    # cell_model = LSTMForecast(
+    #     feature_dim=feature_dim,
+    #     output_dim=output_dim,
+    #     hidden_dim=hidden_dim,
+    #     edge_index=data.edge_index,
+    #     graph=data.G
+    # )
+
+    cell_model = TFTForecast(
         feature_dim=feature_dim,  # Each sensor and its neighbors
         output_dim=output_dim,
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
         graph=data.G,
-        cfg=xlstm_config
-    )
-
-    cell_model = LSTMForecast(
-        feature_dim=feature_dim,
-        output_dim=output_dim,
-        hidden_dim=hidden_dim,
-        edge_index=data.edge_index,
-        graph=data.G
+        device=DEVICE
     )
 
     print(f"GNCA model initialization")
@@ -129,6 +135,9 @@ if __name__ == "__main__":
     print("Starting training...")
     print(f"Device available: {DEVICE}")
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = DEFAULT_PATH + f'saved_models/gnca_model_{timestamp}.pth'
+
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
@@ -136,7 +145,7 @@ if __name__ == "__main__":
                                     num_epochs=4,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
-                                    save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
+                                    save_path=save_path,
                                     scaler=data.value_embedding.embedder,
                                     val_loader=batches.get_val_loader())
     
@@ -144,7 +153,7 @@ if __name__ == "__main__":
 
     plot_training_loss(
         training_losses,
-        save_path=DEFAULT_PATH + 'results/gnca_training_loss.png',
+        save_path=DEFAULT_PATH + f'results/gnca_training_loss_{timestamp}.png',
         show=False
     )
 
@@ -152,7 +161,7 @@ if __name__ == "__main__":
                     batches.get_test_loader(), 
                     temp_dim=temporal_emb_dim,
                     device=DEVICE,
-                    save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth',
+                    save_predictions_path=DEFAULT_PATH + f'results/gnca_test_results_{timestamp}.pth',
                     scaler=data.value_embedding.embedder
                     )
     
