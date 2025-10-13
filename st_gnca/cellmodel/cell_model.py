@@ -186,182 +186,147 @@ class TFTForecast(nn.Module):
     TFT-based cell model that replaces xLSTMForecast.
     Adapts TFT for graph neural cellular automata framework.
     """
-    def __init__(self, feature_dim, output_dim, hidden_dim, edge_index, graph, device=None, **kwargs):
-        super(TFTForecast, self).__init__()
+    def __init__(self, feature_dim, output_dim, hidden_dim, edge_index, cfg=None, 
+                 dropout=0.2, device=DEVICE, dtype=torch.float32, **kwargs):
+        super().__init__()
 
         self.feature_dim = feature_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
+        self.device = device
+        self.dtype = dtype
         self.edge_index = edge_index
-        self.graph = graph
-        self.device = device if device is not None else torch.device('cpu')
+        self.graph = kwargs.get('graph', None)
+        self.max_graph_degree = max(dict(self.graph.degree()).values())
+        self.temp_dim = kwargs.get('temp_dim', 4)  # Default temporal embedding dimension
+        
+        # Initialize tokenizer - this was missing!
+        self.tokenizer = NeighborhoodTokenizer(
+            graph=self.graph,
+            edge_index=self.edge_index,
+            temp_dim=self.temp_dim,
+            hidden_dim=self.hidden_dim,
+            dtype=self.dtype
+        ).to(device=device, dtype=dtype)
 
-        # TFT hyperparameters - good defaults based on research
-        self.max_encoder_length = 12  # matches sequence_len from original
-        self.max_prediction_length = output_dim
+        # Dropout layer
+        self.dropout = nn.Dropout(p=dropout)
 
-        # Create a simple input transformation layer
-        # TFT expects specific input format, so we'll create an adapter
-        # self.input_projection = nn.Linear(feature_dim, hidden_dim)
-        self.input_projection = None # replaced it so it runs dynamicly in the foward phase
-
-        # Output projection to match expected dimensions
-        self.output_projection = nn.Linear(hidden_dim, output_dim)
-
-        # TFT core parameters - optimized defaults
-        tft_params = {
-            'hidden_size': hidden_dim,           # 64
-            'attention_head_size': 8,            # Good default for traffic data
-            'dropout': 0.3,                      # Moderate dropout
-            'hidden_continuous_size': hidden_dim // 2,  # 32
-            'output_size': output_dim,           # 3 (horizon)
-            'loss': QuantileLoss(),
-            'learning_rate': 0.001,              # Standard learning rate
-            'reduce_on_plateau_patience': 4,
-        }
-
-        # Store TFT parameters for later use
-        self.tft_params = tft_params
-
-        # We'll create a simplified TFT-like architecture for this specific use case
-        # Since the original TFT requires TimeSeriesDataSet, we'll build core components
+        # Input projection to map tokenized features to hidden dimension
+        self.input_mapper = nn.Linear(feature_dim, hidden_dim).to(dtype=dtype)
 
         # LSTM encoder-decoder (core of TFT)
         self.encoder_lstm = nn.LSTM(
             input_size=hidden_dim,
             hidden_size=hidden_dim,
             num_layers=4,
-            dropout=0.2,
+            dropout=dropout,
             batch_first=True
-        )
+        ).to(dtype=dtype)
 
         self.decoder_lstm = nn.LSTM(
             input_size=hidden_dim,
             hidden_size=hidden_dim,
             num_layers=4,
-            dropout=0.2,
+            dropout=dropout,
             batch_first=True
-        )
+        ).to(dtype=dtype)
 
         # Multi-head attention (key component of TFT)
         self.multihead_attention = nn.MultiheadAttention(
             embed_dim=hidden_dim,
             num_heads=8,
-            dropout=0.2,
+            dropout=dropout,
             batch_first=True
-        )
+        ).to(dtype=dtype)
 
         # Gated residual networks (GRN) - simplified version
         self.grn1 = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 2),
             nn.ELU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.Dropout(0.2)
-        )
+            nn.Dropout(dropout)
+        ).to(dtype=dtype)
 
         self.grn2 = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 2),
             nn.ELU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.Dropout(0.2)
-        )
+            nn.Dropout(dropout)
+        ).to(dtype=dtype)
 
         # Layer normalization
-        self.layer_norm1 = nn.LayerNorm(hidden_dim)
-        self.layer_norm2 = nn.LayerNorm(hidden_dim)
-        self.layer_norm3 = nn.LayerNorm(hidden_dim)
+        self.layer_norm1 = nn.LayerNorm(hidden_dim).to(dtype=dtype)
+        self.layer_norm2 = nn.LayerNorm(hidden_dim).to(dtype=dtype)
+        self.layer_norm3 = nn.LayerNorm(hidden_dim).to(dtype=dtype)
 
-        self.to(self.device)
+        # Output projection
+        self.output_proj = nn.Linear(hidden_dim, output_dim).to(dtype=dtype)
 
-    def forward(self, *args, **kwargs):
+        # Ensure all parameters are on correct device and dtype
+        self.to(device=device, dtype=dtype)
+
+    def forward(self, sensor, gat_emb, time_emb, subset_nodes):
         """
         Forward pass through TFT-inspired architecture.
-
-        Flexible signature to match original xLSTMForecast interface.
-        The original likely had signature like: forward(self, x, edge_index, temporal_features, spatial_features)
-        or similar variations.
+        
+        Args:
+            sensor: Sensor data tensor
+            gat_emb: Graph attention embeddings
+            time_emb: Temporal embeddings
+            subset_nodes: Subset of nodes to process
+            
+        Returns:
+            prediction: Output predictions [batch_size, output_dim]
         """
-
-
-        # Handle different argument patterns
-        if len(args) == 1:
-            # Simple case: forward(x)
-            x = args[0]
-        elif len(args) >= 2:
-            # Complex case: forward(x, edge_index, ...) or forward(x, temporal_features, ...)
-            x = args[2]
-    
-            # Additional arguments can be edge_index, temporal_features, etc.
-            # For now, we'll use just the first argument (x) and ignore the rest
-            # You can modify this based on your specific needs
-        else:
-            raise ValueError(f"Expected at least 1 argument, got {len(args)}")
-
-
-        # Ensure x has the right shape: [batch_size, sequence_length, feature_dim]
-        if len(x.shape) == 2:
-            # If x is [batch_size, feature_dim], add sequence dimension
-            x = x.unsqueeze(1)  # [batch_size, 1, feature_dim]
-        elif len(x.shape) == 3:
-            # Already in correct format [batch_size, seq_len, feature_dim]
-            pass
-        else:
-            raise ValueError(f"Unexpected input shape: {x.shape}")
-
-        if x.device != self.device:
-            x = x.to(self.device)
-
-        #print(f"Actual input shape: {x.shape}")  # ADD THIS LINE
-        #print(f"Expected feature_dim: {self.feature_dim}")  # ADD THIS LINE
-
-        # input size detection and projection
-        batch_size, seq_len, actual_input_dim = x.shape
-
-        # If input projection doesn't match, recreate it dynamically
-        if not hasattr(self, '_input_dim_set') or self.input_projection.in_features != actual_input_dim:
-            self.input_projection = nn.Linear(actual_input_dim, self.hidden_dim).to(self.device)
-            self._input_dim_set = True
-            print(f"Adjusted input projection for actual input dim: {actual_input_dim}")
-
-        # Input projection
-        x = self.input_projection(x)  # [batch_size, seq_len, hidden_dim]
-
+        
+        # Tokenize the input data using the neighborhood tokenizer
+        # This matches the pattern from xLSTMForecast and LSTMForecast
+        tokenized_data = self.tokenizer.forward(gat_emb, time_emb, sensor, subset_nodes)
+        # Expected shape: [batch_size, seq_len, feature_dim]
+        
+        # Apply the input mapper to project features to hidden dimension
+        mapped_x = self.input_mapper(tokenized_data)
+        # Shape: [batch_size, seq_len, hidden_dim]
+        
+        # Apply dropout to the input
+        x = self.dropout(mapped_x)
+        
         # LSTM encoder
         encoded, (h_enc, c_enc) = self.encoder_lstm(x)
         encoded = self.layer_norm1(encoded)
 
-        # Apply GRN 1
+        # Apply GRN 1 with residual connection
         grn1_out = self.grn1(encoded)
-        encoded = self.layer_norm2(encoded + grn1_out)  # Residual connection
+        encoded = self.layer_norm2(encoded + grn1_out)
 
-        # Multi-head attention
+        # Multi-head attention with residual connection
         attn_out, _ = self.multihead_attention(encoded, encoded, encoded)
-        encoded = self.layer_norm3(encoded + attn_out)  # Residual connection
+        encoded = self.layer_norm3(encoded + attn_out)
 
-        # Apply GRN 2
+        # Apply GRN 2 with residual connection
         grn2_out = self.grn2(encoded)
-        encoded = encoded + grn2_out  # Residual connection
-
-        # For prediction, we can either use the last time step or decode multiple steps
-        if seq_len >= self.max_prediction_length:
-            # Use the last few time steps for prediction
-            decoder_input = encoded[:, -self.max_prediction_length:, :]
-        else:
-            # If sequence is shorter than prediction length, use all of it
-            decoder_input = encoded
+        encoded = encoded + grn2_out
 
         # LSTM decoder for final prediction
-        decoded, _ = self.decoder_lstm(decoder_input, (h_enc, c_enc))
+        decoded, _ = self.decoder_lstm(encoded, (h_enc, c_enc))
+        
+        # Apply dropout to the decoder output before the final projection
+        decoded_output = self.dropout(decoded)
 
-        # Output projection
-        output = self.output_projection(decoded)  # [batch_size, seq_steps, output_dim]
+        # The prediction is based on the final time step's output
+        # This matches the pattern from xLSTMForecast and LSTMForecast
+        prediction = self.output_proj(decoded_output[:, -1, :])
+        # Shape: [batch_size, output_dim]
 
-        # Take mean across sequence dimension to get final prediction
-        # This matches the expected output format for single-step prediction
-        if output.shape[1] > 1:
-            output = output.mean(dim=1)  # [batch_size, output_dim]
-        else:
-            output = output.squeeze(1)  # [batch_size, output_dim]
-
-        return output
-
+        return prediction
+    
+    def to(self, *args, **kwargs):
+        self = super().to(*args, **kwargs)
+        # Update device/dtype attributes if specified
+        for arg in args:
+            if isinstance(arg, torch.dtype):
+                self.dtype = arg
+            elif isinstance(arg, (str, torch.device)):
+                self.device = arg if isinstance(arg, str) else arg.type
+        return self
