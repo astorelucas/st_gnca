@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch_geometric.nn import GATConv
 from st_gnca.embeddings.value import ZTransform
 from torch_geometric.data import Data, Batch
-from st_gnca.embeddings.spatial import SpatialEmbedding, MinMaxTransform, ScalingTransform
+from st_gnca.embeddings.spatial import SpatialEmbedding
 from torch_geometric.utils import k_hop_subgraph
 
 DEVICE = (

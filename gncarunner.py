@@ -13,7 +13,6 @@ from st_gnca.cellmodel.cell_model import xLSTMForecast, LSTMForecast
 from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
                      sLSTMBlockConfig, sLSTMLayerConfig, FeedForwardConfig)
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
-from st_gnca.embeddings.value import ScalingTransform, MinMaxTransform
 from st_gnca.training.evaluate import HybridLoss
 
 # Setup device and data types
