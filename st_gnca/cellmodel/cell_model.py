@@ -45,7 +45,7 @@ class xLSTMForecast(nn.Module):
         self.xlstm = xLSTMBlockStack(cfg).to(dtype=dtype)
 
         # Output projection
-        self.output_proj = nn.Linear(hidden_dim, output_dim).to(dtype=dtype)
+        self.output_proj = nn.Linear(hidden_dim, 1).to(dtype=dtype)
 
         # Ensure all parameters are on correct device and dtype
         self.to(device=device, dtype=dtype)
@@ -76,8 +76,8 @@ class xLSTMForecast(nn.Module):
         # The prediction is based on the final time step's output
         # xlstm_output[:, -1, :] gets the hidden state for the last time step
 
-        prediction = self.output_proj(xlstm_output[:, -1, :])
-        # print(f"Prediction shape: {prediction.shape}") #torch.Size([32, 3]) 
+        prediction = self.output_proj(xlstm_output)
+        # print(f"Prediction shape: {prediction.shape}") #torch.Size([32, 12, 1])
 
         # print(f"Prediction shape: {prediction.shape}")
         return prediction
@@ -141,7 +141,7 @@ class LSTMForecast(nn.Module):
             dtype=self.dtype
         ).to(self.device)
 
-        # Output projection
+        # Output projection - Predicting one variable 
         self.output_proj = nn.Linear(self.hidden_dim, 1, dtype=self.dtype).to(self.device)
 
         # Ensure all parameters are on correct device and dtype
@@ -169,7 +169,7 @@ class LSTMForecast(nn.Module):
         # The prediction is based on the final time step's output
         # lstm_output[:, -1, :] gets the hidden state for the last time step
         prediction = self.output_proj(lstm_output)
-        # print(f"Prediction shape: {prediction.shape}")
+        # print(f"Prediction shape: {prediction.shape}")   torch.Size([32, 12, 1])
 
         return prediction
     
