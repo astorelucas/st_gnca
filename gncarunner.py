@@ -43,7 +43,7 @@ if __name__ == "__main__":
         data_file=DATA_PATH + 'data_imputed.csv'
     )
     print("DataBase initialized.")
-    horizon = 1  # Predicting 1 time step ahead
+    horizon = 12  # Predicting 1 time step ahead
     sequence_len = 12  # Using past 12 time steps
 
     batches = BatchBuilder(data, 
@@ -101,7 +101,7 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
         graph=data.G,
-        cfg=xlstm_config
+        cfg=xlstm_config,
     )
 
     cell_model = LSTMForecast(
@@ -109,7 +109,9 @@ if __name__ == "__main__":
         output_dim=output_dim,
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
-        graph=data.G
+        graph=data.G,
+        num_layers=2,
+        dropout=0.15
     )
 
     print(f"GNCA model initialization")

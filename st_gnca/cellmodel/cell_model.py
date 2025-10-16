@@ -142,7 +142,7 @@ class LSTMForecast(nn.Module):
         ).to(self.device)
 
         # Output projection
-        self.output_proj = nn.Linear(self.hidden_dim, self.output_dim, dtype=self.dtype).to(self.device)
+        self.output_proj = nn.Linear(self.hidden_dim, 1, dtype=self.dtype).to(self.device)
 
         # Ensure all parameters are on correct device and dtype
         self.to(device=self.device, dtype=self.dtype)
@@ -168,8 +168,9 @@ class LSTMForecast(nn.Module):
 
         # The prediction is based on the final time step's output
         # lstm_output[:, -1, :] gets the hidden state for the last time step
-        prediction = self.output_proj(lstm_output[:, -1, :])
-        
+        prediction = self.output_proj(lstm_output)
+        # print(f"Prediction shape: {prediction.shape}")
+
         return prediction
     
     def to(self, *args, **kwargs):
