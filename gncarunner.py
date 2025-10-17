@@ -41,11 +41,11 @@ if __name__ == "__main__":
         data_file=DATA_PATH + 'data_imputed.csv'
     )
     print("DataBase initialized.")
-    horizon = 1  # Predicting 1 time step ahead
-    sequence_len = 12  # Using past 12 time steps
+    horizon = 12  # Predicting 1 time step ahead
+    sequence_len = 24  # Using past 12 time steps
 
     batches = BatchBuilder(data, 
-                           batch_size=32, 
+                           batch_size=64, 
                            sequence_len=sequence_len, 
                            horizon=horizon,
                            val_ratio=0.2,
@@ -56,8 +56,8 @@ if __name__ == "__main__":
     print("BatchBuilder initialized.")
 
     print("Starting model's configuration...")
-    hidden_dim = 8
-    gat_heads = 1
+    hidden_dim = 64
+    gat_heads = 4
     output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
                                     criterion=HybridLoss(alpha=0.8),
-                                    num_epochs=4,  # Increased since we have early stopping
+                                    num_epochs=10,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
                                     save_path=save_path,
