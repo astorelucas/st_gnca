@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 from torch_geometric.data import Data
-from st_gnca.embeddings.temporal import SinusoidalTemporalEncoding
+from st_gnca.embeddings.temporal import SinusoidalTemporalEncoding, MultiScaleTemporalEncoding
 from st_gnca.embeddings.value import ValueEmbedding, MinMaxTransform
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -24,7 +24,7 @@ class DataBase:
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
 
-        self.sensor_ids = list(self.data.columns.drop('timestamp').astype(int).values)
+        self.sensor_ids = list(self.data.columns.drop('timestamp').astype(int).values.astype(np.int32))
         # print(f"Sensor IDs: {self.sensor_ids}")
 
         self.sensor_id_map, self.reverse_sensor_id_map = self._create_sensor_id_map()
@@ -49,17 +49,23 @@ class DataBase:
 
         self.num_sensors = self.G.number_of_nodes()
 
-        self.sensor_data = self._load_data()
+        self.sensor_data = self._normalize_data()
 
-        self.temporal_embedding = SinusoidalTemporalEncoding(
-            emb_dim=4,
+        # self.temporal_embedding = SinusoidalTemporalEncoding(
+        #     emb_dim=10,
+        #     dates=self.data['timestamp'],
+        #     device=self.device,
+        #     dtype=self.dtype
+        # )
+
+        self.temporal_embedding = MultiScaleTemporalEncoding(
             dates=self.data['timestamp'],
+            emb_dim=12,
             device=self.device,
             dtype=self.dtype
         )
 
         self.temporal_features = self.temporal_embedding.all()
-        self.max_graph_degree = max(dict(self.G.degree()).values())
 
     def _create_sensor_id_map(self):
         """
@@ -74,7 +80,7 @@ class DataBase:
         reverse_map = {new_index: original_id for original_id, new_index in forward_map.items()}
         return forward_map, reverse_map
 
-    def _load_data(self):
+    def _normalize_data(self):
         # print(f" sensor_data_raw {self.sensor_data_raw.shape}")
         self.value_embedding = ValueEmbedding(
             self.sensor_data_raw,
@@ -94,7 +100,7 @@ class DataBase:
         return combined
 
 class BatchBuilder:
-    def __init__(self, data, batch_size, sequence_len, train_split=0.7, val_split=0.2, device=DEVICE, dtype=DTYPE, **kwargs):
+    def __init__(self, data, batch_size, sequence_len, train_split=0.6, val_split=0.2, device=DEVICE, dtype=DTYPE, **kwargs):
         self.data = data
         self.batch_size = batch_size
         self.device = device

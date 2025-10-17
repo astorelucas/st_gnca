@@ -176,7 +176,6 @@ class GraphCellularAutomata(nn.Module):
 
     # Apply linear transformation to each node's time series to sum with spatial embeddings
     x_linear = self.Linear_in(xt_filtered.unsqueeze(-1))  # [B, T, N, L] torch.Size([32, 12, 358, 10])
-    # print(f"Linear x shape: {x_linear.shape}")
 
     spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
     self.scaler.fit(spatial_embedder)
@@ -186,6 +185,7 @@ class GraphCellularAutomata(nn.Module):
     # print(f"Spatial embedder example: {spatial_embedder[0, :]}")  # Example for the first node
 
     encoder = x_linear + spatial_embedder.unsqueeze(1)
+    # print(f"Encoder example after adding spatial embedding: {encoder[0, 0, :]}")  # Example for the first batch, first time step
     # print(f"encoder expanded shape: {encoder.shape}") # torch.Size([32, 12, 370, 10])
 
     # gat_embedder = self._gat_spatial_embedder(encoder)
@@ -196,8 +196,6 @@ class GraphCellularAutomata(nn.Module):
 
     # print(f"Input x shape: {x.shape}") # Input x shape: torch.Size([32, 10, 9])
     x_time = X_batch[:, :, 0:self.temp_dim]  # Extract temporal features
-    self.scaler.fit(x_time)
-    x_time = self.scaler.forward(x_time)
     # print(f"Time features example:÷ {x_time[0, 0, :]}")  # Example for the first batch, first time step
     # print(f"Time features shape: {x_time.shape}") #torch.Size([32, 10, 4])
     # print(sorted(self.graph.nodes))
@@ -205,8 +203,6 @@ class GraphCellularAutomata(nn.Module):
     for sensor in sorted(self.graph.nodes):
     #   print(f"Processing sensor {sensor}/{self.graph.number_of_nodes()-1}")
       gat_embedder, subset_nodes = self._subgat_spatial_embedder(encoder, sensor)
-      self.scaler.fit(gat_embedder)
-      gat_embedder = self.scaler.forward(gat_embedder)
       # print(f"GAT embedder shape for sensor {sensor}: {gat_embedder.shape}") #torch.Size([32, 12, N_sub, 64])
       y_pred = self.cell_model(sensor, gat_embedder, x_time, subset_nodes)
       outputs.append(y_pred)

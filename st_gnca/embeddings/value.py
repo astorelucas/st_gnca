@@ -167,19 +167,6 @@ def nanstd(x, dim=None, keepdim=False):
         std = std.squeeze(dim)
     return std
 
-def nanstd(x, dim=None, keepdim=False):
-    mask = ~torch.isnan(x)
-    count = mask.sum(dim=dim, keepdim=True).clamp(min=1)
-    masked_x = torch.where(mask, x, torch.zeros_like(x))
-
-    mean = masked_x.sum(dim=dim, keepdim=True) / count
-    var = ((torch.where(mask, x, mean) - mean) ** 2).sum(dim=dim, keepdim=True) / count
-    std = torch.sqrt(var)
-
-    if not keepdim and dim is not None:
-        std = std.squeeze(dim)
-    return std
-
 
 class ZTransform(nn.Module):
     def __init__(self, **kwargs):
@@ -210,7 +197,7 @@ class ZTransform(nn.Module):
             self.sigma = nanstd(data, dim=dims).detach().to(self.device, self.dtype)
 
         # avoid zeros
-        eps = torch.tensor(1.0, device=self.device, dtype=self.dtype)
+        eps = torch.tensor(1e-6, device=self.device, dtype=self.dtype)
         self.sigma = torch.where(self.sigma == 0, eps, self.sigma)
 
     def forward(self, x):

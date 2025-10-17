@@ -25,7 +25,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             optimizer, mode='min', factor=0.5, patience=3
         )
 
-    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.0001, path=save_path)
+    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.001, path=save_path)
 
     for epoch in range(num_epochs):
         gnca.train()
@@ -64,7 +64,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             loss.backward()
 
             # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(gnca.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(gnca.parameters(), max_norm=5.0)
 
             optimizer.step()
 
@@ -77,7 +77,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
         # Step scheduler on validation loss if available
         if scheduler is not None:
-            val_loss = evaluate_gnca_model2(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
+            val_loss = evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
             print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
             scheduler.step(val_loss)
 
@@ -210,8 +210,8 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
 
             # --- Denormalize both outputs and targets before metrics ---
             if scaler is not None:
-                y_target_denorm = scaler.denormalize(y_target)
-                outputs_denorm = scaler.denormalize(outputs)
+                y_target_denorm = scaler.denormalize(y_target.detach())
+                outputs_denorm = scaler.denormalize(outputs.detach())
             else:
                 y_target_denorm = y_target
                 outputs_denorm = outputs
@@ -258,79 +258,23 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         df.to_csv("results_testing_raw.csv", index=False)
 
 
-    gnca.train()
     return {'metrics': metrics, 'preds': preds, 'targets': targets}
-
-
-def evaluate_gnca_model2(
-    model,
-    data_loader,
-    criterion,
-    temp_dim,
-    device,
-    scaler=None,
-    compute_metrics=False
-):
-    model.eval()
-    total_loss = 0.0
-    n_batches = 0
-    all_preds, all_targets = [], []
-
-    with torch.no_grad():
-        for X_batch, y_batch in data_loader:
-            X_batch = X_batch.to(device)
-            y_batch = y_batch.to(device)
-
-            outputs = model.call_model(X_batch, mode="eval")
-
-            # Align temporal dimension with target
-            output_dim = outputs.shape[-2]
-            y_target = y_batch[..., -output_dim:]
-
-            outputs = outputs.permute(0, 2, 1)
-
-            loss = criterion(outputs, y_target)
-            total_loss += loss.item()
-            n_batches += 1
-
-            if compute_metrics:
-                # Denormalize if scaler is provided
-                if scaler is not None:
-                    preds = scaler.embedder.denormalize(outputs.detach().cpu())
-                    targets = scaler.embedder.denormalize(y_target.detach().cpu())
-                else:
-                    preds = outputs.detach().cpu()
-                    targets = y_target.detach().cpu()
-
-                all_preds.append(preds.numpy())
-                all_targets.append(targets.numpy())
-
-    avg_loss = total_loss / n_batches if n_batches > 0 else 0.0
-
-    if compute_metrics and len(all_preds) > 0:
-        all_preds = np.concatenate(all_preds, axis=0)
-        all_targets = np.concatenate(all_targets, axis=0)
-
-        mae = mean_absolute_error(all_targets.flatten(), all_preds.flatten())
-        rmse = root_mean_squared_error(all_targets.flatten(), all_preds.flatten(), squared=False)
-        mape = np.mean(np.abs((all_targets.flatten() - all_preds.flatten()) / all_targets.flatten())) * 100
-        smape = 100 * np.mean(2 * np.abs(all_preds.flatten() - all_targets.flatten()) / 
-                             (np.abs(all_targets.flatten()) + np.abs(all_preds.flatten()) + 1e-8))
-
-        metrics = {"mae": mae, "rmse": rmse, "mape": mape, "smape": smape}
-        return avg_loss, metrics
-
-    return avg_loss
 
 
 class EarlyStopping:
     def __init__(self, patience=5, verbose=False, delta=0, path='checkpoint.pt'):
         """
-        Args:
-            patience (int): How long to wait after last improvement.
-            verbose (bool): If True, prints a message for each improvement.
-            delta (float): Minimum change to qualify as an improvement.
-            path (str): Path to save the best model.
+        Implements early stopping to terminate training when validation loss does not improve.
+
+        Monitors validation loss and saves the model when an improvement is observed.
+        Stops training if no improvement is seen for a specified number of epochs (patience).
+        Usage:
+            early_stopping = EarlyStopping(patience=5, verbose=True, delta=0.001, path='best_model.pt')
+            for epoch in range(num_epochs):
+                ...
+                early_stopping(val_loss, model)
+                if early_stopping.early_stop:
+                    break
         """
         self.patience = patience
         self.verbose = verbose

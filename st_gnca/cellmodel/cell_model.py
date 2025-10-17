@@ -130,6 +130,8 @@ class LSTMForecast(nn.Module):
         # The input to this mapper is the tokenized data
         self.input_mapper = nn.Linear(self.feature_dim, self.hidden_dim, dtype=self.dtype).to(self.device)
 
+        self.input_norm = nn.LayerNorm(self.hidden_dim, dtype=self.dtype).to(self.device)
+
         # LSTM layer
         # batch_first=True means input/output tensors are [batch, seq, features]
         self.lstm = nn.LSTM(
@@ -156,6 +158,8 @@ class LSTMForecast(nn.Module):
         # Apply the input mapper to project features to hidden dimension
         mapped_x = self.input_mapper(tokenized_data)
 
+        mapped_x = self.input_norm(mapped_x)
+
         # Apply dropout to the input
         lstm_in = self.dropout(mapped_x)
         
@@ -169,6 +173,7 @@ class LSTMForecast(nn.Module):
         # The prediction is based on the final time step's output
         # lstm_output[:, -1, :] gets the hidden state for the last time step
         prediction = self.output_proj(lstm_output[:, -1, :])
+        # print(f"Prediction shape: {prediction.shape}") #torch.Size([32, 3])
         
         return prediction
     

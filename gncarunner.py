@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import SmoothL1Loss
 import pandas as pd
 import numpy as np
 
@@ -43,8 +44,8 @@ if __name__ == "__main__":
         data_file=DATA_PATH + 'data_imputed.csv'
     )
     print("DataBase initialized.")
-    horizon = 1  # Predicting 1 time step ahead
-    sequence_len = 12  # Using past 12 time steps
+    horizon = 12  # Predicting 12 time steps ahead
+    sequence_len = 36  # Using past 36 time steps
 
     batches = BatchBuilder(data, 
                            batch_size=32, 
@@ -58,58 +59,59 @@ if __name__ == "__main__":
     print("BatchBuilder initialized.")
 
     print("Starting model's configuration...")
-    hidden_dim = 8
-    gat_heads = 1
+    hidden_dim = 96
+    gat_heads = 2
     output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
-    max_graph_degree = data.max_graph_degree
     feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
     # input_len = feature_dim
 
-    print(f"Cell model initialization")
-    xlstm_config = xLSTMBlockStackConfig(
-        mlstm_block=mLSTMBlockConfig(
-            mlstm=mLSTMLayerConfig(
-                conv1d_kernel_size=4, 
-                num_heads=4           # More heads for complex temporal patterns
-            )
-        ),
-        slstm_block=sLSTMBlockConfig(
-            slstm=sLSTMLayerConfig(
-                backend="cuda" if torch.cuda.is_available() else "vanilla",
-                num_heads=2,         # Balance capacity/compute
-                conv1d_kernel_size=4
-            ),
-            feedforward=FeedForwardConfig(
-                proj_factor=2.0,      # Wider FFN (original: 1.0)
-                act_fn="swish" # trocar pra swish
-            )
-        ),
-        context_length=sequence_len,     # Match input_len
-        num_blocks=6,                 # Deeper stack
-        embedding_dim=hidden_dim,
-        slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
-)
+#     print(f"Cell model initialization")
+#     xlstm_config = xLSTMBlockStackConfig(
+#         mlstm_block=mLSTMBlockConfig(
+#             mlstm=mLSTMLayerConfig(
+#                 conv1d_kernel_size=4, 
+#                 num_heads=4           # More heads for complex temporal patterns
+#             )
+#         ),
+#         slstm_block=sLSTMBlockConfig(
+#             slstm=sLSTMLayerConfig(
+#                 backend="cuda" if torch.cuda.is_available() else "vanilla",
+#                 num_heads=2,         # Balance capacity/compute
+#                 conv1d_kernel_size=4
+#             ),
+#             feedforward=FeedForwardConfig(
+#                 proj_factor=2.0,      # Wider FFN (original: 1.0)
+#                 act_fn="swish" # trocar pra swish
+#             )
+#         ),
+#         context_length=sequence_len,     # Match input_len
+#         num_blocks=6,                 # Deeper stack
+#         embedding_dim=hidden_dim,
+#         slstm_at=[1,3]               # Add sLSTM at blocks 1 and 3
+# )
     
-    cell_model = xLSTMForecast(
-        feature_dim=feature_dim,  # Each sensor and its neighbors
-        output_dim=output_dim,
-        hidden_dim=hidden_dim,
-        edge_index=data.edge_index,
-        graph=data.G,
-        cfg=xlstm_config
-    )
+#     cell_model = xLSTMForecast(
+#         feature_dim=feature_dim,  # Each sensor and its neighbors
+#         output_dim=output_dim,
+#         hidden_dim=hidden_dim,
+#         edge_index=data.edge_index,
+#         graph=data.G,
+#         cfg=xlstm_config
+#     )
 
     cell_model = LSTMForecast(
         feature_dim=feature_dim,
         output_dim=output_dim,
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
-        graph=data.G
+        graph=data.G,
+        num_layers=8,
+        dropout=0.15
     )
 
     print(f"GNCA model initialization")
@@ -120,8 +122,8 @@ if __name__ == "__main__":
         dtype=DTYPE,
         temp_dim=temporal_emb_dim,
         heads=gat_heads,
-        laplacian_components=10,  # Number of spatial embedding components
-        dropout=0.2
+        laplacian_components=36,  # Number of spatial embedding components
+        dropout=0.15
     )
 
     print("Model configuration completed.")
@@ -131,7 +133,7 @@ if __name__ == "__main__":
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
-                                    criterion=HybridLoss(alpha=0.8),
+                                    criterion=SmoothL1Loss(beta=0.8),
                                     num_epochs=4,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
