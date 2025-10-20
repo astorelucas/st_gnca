@@ -16,6 +16,8 @@ from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.training.evaluate import HybridLoss
 
+import time
+
 # Setup device and data types
 DEVICE = (
     torch.device('cuda') if torch.cuda.is_available()
@@ -29,6 +31,7 @@ DATA_PATH = DEFAULT_PATH + 'data/PEMS08/'
 # Usage example
 if __name__ == "__main__":
     print("Setting up model configuration...")
+    start_time = time.time()
 
     '''
     Notes:
@@ -144,6 +147,9 @@ if __name__ == "__main__":
                                     )
     
     print("Training completed.")
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Total training time: {elapsed_time:.2f} seconds")
 
     plot_training_loss(
         training_losses,
