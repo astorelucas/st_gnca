@@ -1,24 +1,18 @@
 import torch
 from torch import nn
 import numpy as np
-import torch.nn.functional as F
-from sklearn.preprocessing import StandardScaler
-
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def build_scaler(train_ds, device="cuda", sample_size=100_000):
     """Optimized scaler initialization with random sampling"""
-    # 1. Estimate min/max from a random sample (no full dataset iteration)
     sample_indices = np.random.choice(len(train_ds), size=min(sample_size, len(train_ds)), replace=False)
     
-    # 2. Vectorized extraction using dataset.__getitem__
     sample_ys = []
     for idx in sample_indices:
-        _, y = train_ds[idx]  # Direct access avoids DataLoader overhead
+        _, y = train_ds[idx]  
         sample_ys.append(y.cpu().numpy() if torch.is_tensor(y) else y)
     
-    # 3. Stack and compute stats in one batch
     scaler = ScalingTransform(np.stack(sample_ys), device=device)
     
     print(f"Scaler initialized with {len(sample_ys)} samples (min={scaler.min:.4f}, max={scaler.max:.4f})")
@@ -40,18 +34,15 @@ class ValueEmbedding(nn.Module):
         else:
             raise ValueError("Unknown embedder type!")
         
-        # Fit the embedder during initialization
         self.embedder.fit(data)
 
     def forward(self, x):
         return self.embedder.forward(x)
 
     def to(self, *args, **kwargs):
-        # Correctly propagate the `to` call to the embedder
         super().to(*args, **kwargs)
         self.embedder.to(*args, **kwargs)
         
-        # Update device and dtype attributes based on args/kwargs
         if 'device' in kwargs:
             self.device = kwargs['device']
         elif isinstance(args[0], str):
@@ -80,11 +71,9 @@ class MinMaxTransform(nn.Module):
         """
         Reverts the Min-Max normalization.
         """
-        # The correct denormalization formula
         return ((x_normalized - self.range[0]) / (self.range[1] - self.range[0])) * (self.max_val - self.min_val) + self.min_val
 
     def fit(self, data):
-        # Correctly assign to self.min_val and self.max_val
         self.min_val = data.min()
         self.max_val = data.max()
 
@@ -104,7 +93,6 @@ class ScalingTransform(nn.Module):
         self.dtype = kwargs.get('dtype', torch.float32)
         self.epsilon = kwargs.get('epsilon', 1e-8)
         
-        # Register buffers for non-learnable parameters
         self.register_buffer('data_min', None)
         self.register_buffer('data_range', None)
 
@@ -112,7 +100,6 @@ class ScalingTransform(nn.Module):
         if not isinstance(data, torch.Tensor):
             data = torch.tensor(data, dtype=self.dtype, device=self.device)
         
-        # Safely handle NaN/Inf before calculation
         data = torch.nan_to_num(
             data, 
             nan=0.0, 
@@ -128,7 +115,6 @@ class ScalingTransform(nn.Module):
         if self.data_min is None or self.data_range is None:
             raise RuntimeError("ScalingTransform has not been fitted yet.")
         
-        # Use registered buffers for scaling
         return (x - self.data_min) / self.data_range
 
     def denormalize(self, x):
@@ -138,10 +124,8 @@ class ScalingTransform(nn.Module):
         return x * self.data_range + self.data_min
 
     def to(self, *args, **kwargs):
-        # The super().to() call handles moving the registered buffers.
         super().to(*args, **kwargs)
         
-        # Update device and dtype attributes for consistency
         if 'device' in kwargs:
             self.device = kwargs['device']
         elif len(args) > 0 and isinstance(args[0], (str, torch.device)):
@@ -183,7 +167,6 @@ class ZTransform(nn.Module):
         else:
             data = data.to(self.device, self.dtype)
 
-        # mean/std per feature (last dim)
         dims = tuple(range(data.ndim - 1))
 
         if hasattr(torch, "nanmean"):
@@ -196,7 +179,6 @@ class ZTransform(nn.Module):
         else:
             self.sigma = nanstd(data, dim=dims).detach().to(self.device, self.dtype)
 
-        # avoid zeros
         eps = torch.tensor(1e-6, device=self.device, dtype=self.dtype)
         self.sigma = torch.where(self.sigma == 0, eps, self.sigma)
 

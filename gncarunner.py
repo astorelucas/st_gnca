@@ -60,7 +60,7 @@ if __name__ == "__main__":
 
     print("Starting model's configuration...")
     hidden_dim = 96
-    gat_heads = 2
+    gat_heads = 3
     output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
@@ -130,21 +130,24 @@ if __name__ == "__main__":
     print("Starting training...")
     print(f"Device available: {DEVICE}")
 
-    avg_loss, training_losses = train_gnca_model(gnca, 
+    avg_loss, training_losses, validation_losses = train_gnca_model(
+                                    gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
                                     criterion=SmoothL1Loss(beta=0.8),
-                                    num_epochs=4,  # Increased since we have early stopping
+                                    num_epochs=40,  
                                     device=DEVICE,
                                     return_history=True,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
                                     scaler=data.value_embedding.embedder,
-                                    val_loader=batches.get_val_loader())
+                                    val_loader=batches.get_val_loader()
+                                    )
     
     print("Training completed.")
 
     plot_training_loss(
         training_losses,
+        validation_losses,
         save_path=DEFAULT_PATH + 'results/gnca_training_loss.png',
         show=False
     )

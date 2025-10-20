@@ -3,13 +3,10 @@ import pandas as pd
 import os
 import matplotlib.pyplot as plt
 from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_training_losses_csv
-from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from tqdm.auto import tqdm
-import numpy as np
 
 
-
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, scaler=None, val_loader=None, temp_dim=None):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, val_loader=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -17,11 +14,9 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
     of per-epoch average losses.
     """
     training_losses = []
+    validation_losses = []
 
-    # Setup LR scheduler on validation loss if a val_loader is provided
-    scheduler = None
-    if val_loader is not None:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=0.5, patience=3
         )
 
@@ -35,35 +30,20 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
             optimizer.zero_grad()
 
-            # Batch X shape: torch.Size([32, 10, 358]), Batch y shape: torch.Size([32, 358])
-            # Batch X shape: torch.Size([32, 12, 9]), Batch y shape: torch.Size([32, 3, 9])
-            # print(f"Batch X shape: {X_batch.shape}, Batch y shape: {y_batch.shape}")
-            
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
-            # print(f"X_batch shape: {X_batch.shape}, y_batch shape: {y_batch.shape}")
 
             outputs = gnca.call_model(X_batch, mode='train')
-            # print(f"Outputs shape: {outputs.shape}")
-            # Outputs shape: torch.Size([32, 5, 3])
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
-            # print(f"output_dim: {output_dim}")
             y_target = y_batch[..., -output_dim:]
-            # print(f"y_target shape: {y_target.shape}")
 
             outputs = outputs.permute(0, 2, 1)
-            # print(f"Outputs permuted shape: {outputs.shape}")
 
-            # print("Example output :", outputs[0])
-            # print("Example target :", y_target[0])
-
-            # Compute loss in normalized space
             loss = criterion(outputs, y_target)
             loss.backward()
 
-            # Gradient clipping
             torch.nn.utils.clip_grad_norm_(gnca.parameters(), max_norm=5.0)
 
             optimizer.step()
@@ -75,11 +55,10 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
         training_losses.append(epoch_loss)
         print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss:.4f}")
 
-        # Step scheduler on validation loss if available
-        if scheduler is not None:
-            val_loss = evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=scaler)
-            print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
-            scheduler.step(val_loss)
+        val_loss = evaluate_gnca_model(gnca, val_loader, criterion, device)
+        validation_losses.append(val_loss)
+        print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
+        scheduler.step(val_loss)
 
         early_stopping(val_loss, gnca)
 
@@ -89,7 +68,6 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
     avg_loss = sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
 
-    # Save model state_dict if a path was provided
     if save_path:
         save_dir = os.path.dirname(save_path)
         if save_dir:
@@ -98,11 +76,11 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
         print(f"Model saved to: {save_path}")
 
     if return_history:
-        return avg_loss, training_losses
+        return avg_loss, training_losses, validation_losses
 
     return avg_loss
 
-def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=None):
+def evaluate_gnca_model(gnca, val_loader, criterion, device):
     """
     Run evaluation on validation loader and return average loss.
 
@@ -111,6 +89,7 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=No
         val_loader: DataLoader for validation data
         criterion: loss function (e.g. nn.MSELoss())
         temp_dim: number of temporal feature columns to drop from targets
+        validation_losses (list[float], optional): Validation loss value per epoch.
         device: torch.device
         scaler: optional ScalingTransform for denormalization
 
@@ -142,32 +121,39 @@ def evaluate_gnca_model(gnca, val_loader, criterion, temp_dim, device, scaler=No
     avg_loss = total_loss / n_batches if n_batches > 0 else 0.0
     return avg_loss
 
-def plot_training_loss(training_losses, save_path: str = None, show: bool = False):
+def plot_training_loss(training_losses, validation_losses=None, save_path: str = None, show: bool = False):
     """
-    Build and return a matplotlib Figure showing training loss per epoch.
+    Build and return a matplotlib Figure showing training and validation loss per epoch.
 
     Args:
-      training_losses (list[float]): loss value per epoch
-      save_path (str, optional): filepath to save the figure (PNG). If None, figure is not saved.
-      show (bool): if True, plt.show() will be called.
+      training_losses (list[float]): Training loss value per epoch.
+      validation_losses (list[float], optional): Validation loss value per epoch.
+      save_path (str, optional): Filepath to save the figure (PNG). If None, figure is not saved.
+      show (bool): If True, plt.show() will be called.
 
     Returns:
       matplotlib.figure.Figure
     """
     save_training_losses_csv(training_losses, "training_losses.csv")
 
-    fig, ax = plt.subplots(figsize=(6,4))
-    epochs = list(range(1, len(training_losses)+1))
-    ax.plot(epochs, training_losses, marker='o', linestyle='-')
+    fig, ax = plt.subplots(figsize=(6, 4))
+    epochs = list(range(1, len(training_losses) + 1))
+    ax.plot(epochs, training_losses, linestyle='-', label='Training Loss')
+
+    if validation_losses:
+        val_epochs = list(range(1, len(validation_losses) + 1))
+        ax.plot(val_epochs, validation_losses, linestyle='--', label='Validation Loss')
+
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Loss')
-    ax.set_title('Training Loss per Epoch')
+    ax.set_title('Training and Validation Loss per Epoch')
+    ax.legend()
     ax.grid(True)
     plt.tight_layout()
 
     if save_path:
         fig.savefig(save_path, dpi=150)
-        print(f"Training loss plot saved to: {save_path}")
+        print(f"Training and validation loss plot saved to: {save_path}")
 
     if show:
         plt.show()
@@ -192,10 +178,8 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         for X_batch, y_batch in tqdm(test_loader, unit="batch", leave=False):
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
-            # print(f"Test batch X shape: {X_batch.shape}, y shape: {y_batch.shape}")
 
-            outputs = gnca.call_model(X_batch, mode='val') # [358, horizon]
-            # print(f"Test batch outputs shape: {outputs.shape}")
+            outputs = gnca.call_model(X_batch, mode='val') 
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
@@ -203,10 +187,6 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
             outputs = outputs
 
             outputs = outputs.permute(0, 2, 1)
-            # # align with training/validation preprocessing
-            # y_target = y_batch[:, temp_dim:]
-            # if outputs.shape != y_target.shape:
-            #     y_target = y_target[..., : outputs.shape[-1]]
 
             # --- Denormalize both outputs and targets before metrics ---
             if scaler is not None:
@@ -226,7 +206,6 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         metrics = {'mape': float('nan'), 'smape': float('nan'), 'mae': float('nan'),
                    'rmse': float('nan'), 'nrmse': float('nan')}
     else:
-        # evaluate.py functions expect (y, y_pred)
         metrics = {
             'mape': MAPE(targets, preds).cpu().item(),
             'smape': SMAPE(targets, preds).cpu().item(),
@@ -234,6 +213,8 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
             'rmse': RMSE(targets, preds).cpu().item(),
             'nrmse': nRMSE(targets, preds).cpu().item(),
         }
+        metrics_save = pd.DataFrame([metrics])
+        metrics_save.to_csv("test_metrics.csv", index=False)
 
     if save_predictions_path:
         os.makedirs(os.path.dirname(save_predictions_path) or ".", exist_ok=True)
@@ -245,11 +226,9 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         preds = results["preds"].cpu().numpy()
         targets = results["targets"].cpu().numpy()
 
-        # automatically flatten batch & sequence dimensions, keep horizon intact
         preds = preds.reshape(-1, preds.shape[-1])
         targets = targets.reshape(-1, targets.shape[-1])
 
-        # build dataframe with dynamic horizon
         df = pd.DataFrame({
             **{f"pred_{i}": preds[:, i] for i in range(preds.shape[1])},
             **{f"target_{i}": targets[:, i] for i in range(targets.shape[1])},

@@ -3,7 +3,6 @@ import networkx as nx
 import pandas as pd
 import numpy as np
 
-from torch_geometric.data import Data
 from st_gnca.embeddings.temporal import SinusoidalTemporalEncoding, MultiScaleTemporalEncoding
 from st_gnca.embeddings.value import ValueEmbedding, MinMaxTransform
 
@@ -17,7 +16,6 @@ class DataBase:
 
         self.G = nx.Graph()
 
-        # Load sensor data
         self.data = pd.read_csv(kwargs.get('data_file', 'data.csv'), engine='pyarrow')
         self.data = self.data.iloc[:, :-1]
 
@@ -25,25 +23,19 @@ class DataBase:
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
 
         self.sensor_ids = list(self.data.columns.drop('timestamp').astype(int).values.astype(np.int32))
-        # print(f"Sensor IDs: {self.sensor_ids}")
 
         self.sensor_id_map, self.reverse_sensor_id_map = self._create_sensor_id_map()
 
         edges = pd.read_csv(kwargs.get('edges_file', 'edges.csv'), engine='pyarrow')
 
         for source_id, target_id, weight in edges[['source', 'target', 'weight']].values:
-            # print(f"Processing edge from {source_id} to {target_id} with weight {weight}")
-            # Use the mapping to get the integer indices
+
             source_idx = self.sensor_id_map.get(source_id)
-            # print(f"Mapped source ID {source_id} to index {source_idx}")
             target_idx = self.sensor_id_map.get(target_id)
-            # print(f"Mapped target ID {target_id} to index {target_idx}")
 
             if source_idx is not None and target_idx is not None:
-                # print(f"Adding edge from {source_idx} to {target_idx} with weight {weight}")
                 self.G.add_edge(source_idx, target_idx, weight=weight.round(4).item())
 
-        # Create edge_index and edge_weight for PyTorch Geometric
         self.edge_index = torch.tensor(list(self.G.edges)).t().contiguous().to(self.device)
         self.edge_weight = torch.tensor([self.G[u][v]['weight'] for u, v in self.G.edges()]).to(self.device)
 
@@ -81,7 +73,6 @@ class DataBase:
         return forward_map, reverse_map
 
     def _normalize_data(self):
-        # print(f" sensor_data_raw {self.sensor_data_raw.shape}")
         self.value_embedding = ValueEmbedding(
             self.sensor_data_raw,
             value_embedding_type='ztransform',
@@ -94,8 +85,6 @@ class DataBase:
         return sensor_data
 
     def concat_features(self):
-        # print(f"temporal_features {self.temporal_features.shape}")
-        # print(f"sensor_data {self.sensor_data.shape}")
         combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
         return combined
 
@@ -108,17 +97,14 @@ class BatchBuilder:
         self.sequence_len = sequence_len
         self.horizon = kwargs.get('horizon', 0)
 
-        # Validate splits
         if train_split + val_split >= 1.0:
             raise ValueError("Train + validation split must be less than 1.0")
         self.train_split = train_split
         self.val_split = val_split
 
-        # Tokenize and split the data
         self.data_tokenized = self.data.concat_features()
         self.num_samples = self.data_tokenized.size(0)
 
-        # Ensure the dataset is large enough for sequence length and horizon
         if self.num_samples <= self.sequence_len + self.horizon:
             raise ValueError(
                 f"Dataset is too small for the given sequence length ({self.sequence_len}) and horizon ({self.horizon}). "
@@ -132,11 +118,11 @@ class BatchBuilder:
         val_end = int(self.num_samples * (self.train_split + self.val_split))
 
         train_data = self.data_tokenized[:train_end]
-        # print(f"Train data shape: {train_data.shape}")
+
         val_data = self.data_tokenized[train_end:val_end]
-        # print(f"Validation data shape: {val_data.shape}")
+
         test_data = self.data_tokenized[val_end:]
-        # print(f"Test data shape: {test_data.shape}")
+
 
         return train_data, val_data, test_data
 

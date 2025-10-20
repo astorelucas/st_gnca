@@ -1,26 +1,11 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import eigsh
 import networkx as nx
-from typing import Optional, Union
-from torch_geometric.nn import MessagePassing
-from torch_geometric.utils import add_self_loops
-
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-import numpy as np
-import networkx as nx
-
 from sklearn.manifold import SpectralEmbedding
-
-import torch
-from torch import nn
-
 from tensordict import TensorDict
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class SpatialEmbedding(nn.Module):
   def __init__(self, graph, laplacian_components = 20, **kwargs):

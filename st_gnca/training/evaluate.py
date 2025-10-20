@@ -17,8 +17,6 @@ def RMSE(y, y_pred):
   return torch.sqrt(torch.mean((y - y_pred) ** 2))
 
 def nRMSE(y, y_pred):
-  # I’m considering the RSME/mean(y_true) .. so for example:
-  # nRMSE = 0.05 (5%) means the average prediction error is 5% of the mean of the true values
   return RMSE(y, y_pred)/torch.mean(y)
 
 
