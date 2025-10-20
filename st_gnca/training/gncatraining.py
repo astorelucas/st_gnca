@@ -6,7 +6,7 @@ from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_traini
 from tqdm.auto import tqdm
 
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, return_history: bool = False, val_loader=None):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, val_loader=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -37,9 +37,9 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
-            y_target = y_batch[..., -output_dim:]
+            y_target = y_batch[..., -output_dim:].contiguous()
 
-            outputs = outputs.permute(0, 2, 1)
+            outputs = outputs.permute(0, 2, 1).contiguous()
 
             loss = criterion(outputs, y_target)
             loss.backward()
@@ -74,11 +74,8 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             os.makedirs(save_dir, exist_ok=True)
         torch.save(gnca.state_dict(), save_path)
         print(f"Model saved to: {save_path}")
-
-    if return_history:
-        return avg_loss, training_losses, validation_losses
-
-    return avg_loss
+    
+    return avg_loss, training_losses, validation_losses
 
 def evaluate_gnca_model(gnca, val_loader, criterion, device):
     """
@@ -108,10 +105,9 @@ def evaluate_gnca_model(gnca, val_loader, criterion, device):
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
-            y_target = y_batch[..., -output_dim:]
-            outputs = outputs
+            y_target = y_batch[..., -output_dim:].contiguous()
 
-            outputs = outputs.permute(0, 2, 1)
+            outputs = outputs.permute(0, 2, 1).contiguous()
 
             # Compute validation loss in normalized space
             loss = criterion(outputs, y_target)
@@ -183,10 +179,9 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
-            y_target = y_batch[..., -output_dim:]
-            outputs = outputs
+            y_target = y_batch[..., -output_dim:].contiguous()
 
-            outputs = outputs.permute(0, 2, 1)
+            outputs = outputs.permute(0, 2, 1).contiguous()
 
             # --- Denormalize both outputs and targets before metrics ---
             if scaler is not None:

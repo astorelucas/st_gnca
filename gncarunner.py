@@ -51,7 +51,7 @@ if __name__ == "__main__":
     sequence_len = 36  # Using past 36 time steps
 
     batches = BatchBuilder(data, 
-                           batch_size=32, 
+                           batch_size=64, 
                            sequence_len=sequence_len, 
                            horizon=horizon,
                            val_ratio=0.2,
@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
     print("Starting model's configuration...")
     hidden_dim = 96
-    gat_heads = 3
+    gat_heads = 1
     output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
         graph=data.G,
-        num_layers=8,
+        num_layers=1,
         dropout=0.15
     )
 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
         dtype=DTYPE,
         temp_dim=temporal_emb_dim,
         heads=gat_heads,
-        laplacian_components=36,  # Number of spatial embedding components
+        laplacian_components=20,  # Number of spatial embedding components
         dropout=0.15
     )
 
@@ -137,12 +137,10 @@ if __name__ == "__main__":
                                     gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
-                                    criterion=SmoothL1Loss(beta=0.8),
+                                    criterion=SmoothL1Loss(beta=0.5),
                                     num_epochs=40,  
                                     device=DEVICE,
-                                    return_history=True,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
-                                    scaler=data.value_embedding.embedder,
                                     val_loader=batches.get_val_loader()
                                     )
     
