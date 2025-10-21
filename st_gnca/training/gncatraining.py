@@ -68,7 +68,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             break
     
         end_time = time.time()
-        print("Elapsed : " + str(end_time - start_time) + "s")
+        print("Time to calculate epoch: " + str(end_time - start_time) + "s")
 
 
     avg_loss = sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
