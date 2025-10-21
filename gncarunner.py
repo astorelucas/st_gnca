@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import SmoothL1Loss
 import pandas as pd
 import numpy as np
-
+np.random.seed(2025)
 from st_gnca.training.gncatraining import (
     train_gnca_model, 
     plot_training_loss, 
@@ -138,7 +138,7 @@ if __name__ == "__main__":
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
                                     criterion=SmoothL1Loss(beta=0.5),
-                                    num_epochs=40,  
+                                    num_epochs=4,  
                                     device=DEVICE,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
                                     val_loader=batches.get_val_loader()
