@@ -4,7 +4,7 @@ import os
 import matplotlib.pyplot as plt
 from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_training_losses_csv
 from tqdm.auto import tqdm
-
+import time
 
 def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, val_loader=None):
     """
@@ -23,6 +23,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
     early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.001, path=save_path)
 
     for epoch in range(num_epochs):
+        start_time = time.time()
         gnca.train()
         total_loss = 0.0
         n_batches = 0
@@ -65,6 +66,10 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
+    
+        end_time = time.time()
+        print("Elapsed : " + str(end_time - start_time) + "s")
+
 
     avg_loss = sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
 
