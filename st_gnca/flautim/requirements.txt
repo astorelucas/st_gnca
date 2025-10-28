@@ -10,4 +10,4 @@ scikit-learn>=1.6.0
 xlstm>=2.0.0
 mlstm_kernels>=2.0.0
 torch_geometric>=2.3.0
-git+https://github.com/astorelucas/st_gnca.git 
+git+https://github.com/astorelucas/st_gnca.git@origin/tft

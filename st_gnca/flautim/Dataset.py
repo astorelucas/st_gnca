@@ -1,8 +1,5 @@
 from flautim.pytorch.Dataset import Dataset
-import torch
-import copy
-import flautim as fl
-from st_gnca.data.dataloader import database
+from st_gnca.dataloader import database
 
 
 class SplitDataset(Dataset):
