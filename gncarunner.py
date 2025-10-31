@@ -105,7 +105,7 @@ if __name__ == "__main__":
             edges_file=DATA_PATH + 'edges_normalized.csv',
             data_file=DATA_PATH + 'data_imputed.csv'
         )
-    except FileNotFoundError as e:
+    except Exception as e:
         data = DataBase(
             edges_file=DATA_PATH + 'edges.csv',
             data_file=DATA_PATH + 'data.csv'
