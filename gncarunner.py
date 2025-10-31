@@ -3,6 +3,10 @@ from torch import nn
 from torch.nn import SmoothL1Loss
 import pandas as pd
 import numpy as np
+import argparse
+from datetime import datetime
+from pathlib import Path
+
 
 from st_gnca.training.gncatraining import (
     train_gnca_model, 
@@ -16,6 +20,7 @@ from xlstm import (xLSTMBlockStackConfig, mLSTMBlockConfig, mLSTMLayerConfig,
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.training.evaluate import HybridLoss
 
+
 # Setup device and data types
 DEVICE = (
     torch.device('cuda') if torch.cuda.is_available()
@@ -24,10 +29,66 @@ DEVICE = (
 )
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/PEMS08/'
+DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
+
+
+def parse_arguments():
+    """Parse command line arguments for save_path and save_suffix."""
+    parser = argparse.ArgumentParser(
+        description='Train and test GNCA model with optional custom save paths and suffixes.'
+    )
+    parser.add_argument(
+        '--save_path',
+        type=str,
+        default=DEFAULT_PATH,
+        help='Path where models and results will be saved. Default: st_gnca/'
+    )
+    parser.add_argument(
+        '--save_suffix',
+        type=str,
+        default='__DEFAULT__',
+        help='Suffix for saved files. Use "__DEFAULT__" for timestamp. Default: __DEFAULT__'
+    )
+    return parser.parse_args()
+
+
+def get_save_suffix(save_suffix_arg):
+    """
+    Generate or return the save suffix.
+    If save_suffix_arg is "__DEFAULT__", returns a timestamp suffix.
+    Otherwise, returns the provided suffix.
+    """
+    if save_suffix_arg == '__DEFAULT__':
+        return datetime.now().strftime('%Y%m%d_%H%M%S')
+    return save_suffix_arg
+
+
+def ensure_directories(save_path):
+    """Create necessary directories if they don't exist."""
+    models_dir = Path(save_path) / 'saved_models'
+    results_dir = Path(save_path) / 'results'
+    
+    models_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    return str(models_dir), str(results_dir)
+
 
 # Usage example
 if __name__ == "__main__":
+    print("Parsing command line arguments...")
+    args = parse_arguments()
+    
+    # Get save suffix (with timestamp if __DEFAULT__)
+    save_suffix = get_save_suffix(args.save_suffix)
+    save_path = args.save_path
+    
+    print(f"Save path: {save_path}")
+    print(f"Save suffix: {save_suffix}")
+    
+    # Create directories
+    models_dir, results_dir = ensure_directories(save_path)
+    
     print("Setting up model configuration...")
 
     '''
@@ -130,6 +191,11 @@ if __name__ == "__main__":
     print("Starting training...")
     print(f"Device available: {DEVICE}")
 
+    # Construct save paths with suffix
+    model_save_path = str(Path(models_dir) / f'gnca_model_{save_suffix}.pth')
+    loss_plot_path = str(Path(results_dir) / f'gnca_training_loss_{save_suffix}.png')
+    test_results_path = str(Path(results_dir) / f'gnca_test_results_{save_suffix}.pth')
+
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
@@ -137,7 +203,7 @@ if __name__ == "__main__":
                                     num_epochs=4,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
-                                    save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
+                                    save_path=model_save_path,
                                     scaler=data.value_embedding.embedder,
                                     val_loader=batches.get_val_loader())
     
@@ -145,7 +211,7 @@ if __name__ == "__main__":
 
     plot_training_loss(
         training_losses,
-        save_path=DEFAULT_PATH + 'results/gnca_training_loss.png',
+        save_path=loss_plot_path,
         show=False
     )
 
@@ -153,10 +219,10 @@ if __name__ == "__main__":
                     batches.get_test_loader(), 
                     temp_dim=temporal_emb_dim,
                     device=DEVICE,
-                    save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth',
+                    save_predictions_path=test_results_path,
                     scaler=data.value_embedding.embedder
                     )
     
     print(results)
 
-print("Testing completed.")
+    print("Testing completed.")
