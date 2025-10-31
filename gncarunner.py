@@ -100,10 +100,17 @@ if __name__ == "__main__":
     - The data-preprocessed.csv should be in chronological order
     '''
 
-    data = DataBase(
-        edges_file=DATA_PATH + 'edges_normalized.csv',
-        data_file=DATA_PATH + 'data_imputed.csv'
-    )
+    try:
+        data = DataBase(
+            edges_file=DATA_PATH + 'edges_normalized.csv',
+            data_file=DATA_PATH + 'data_imputed.csv'
+        )
+    except FileNotFoundError as e:
+        data = DataBase(
+            edges_file=DATA_PATH + 'edges.csv',
+            data_file=DATA_PATH + 'data.csv'
+        )
+        
     print("DataBase initialized.")
     horizon = 12  # Predicting 12 time steps ahead
     sequence_len = 36  # Using past 36 time steps
