@@ -33,7 +33,7 @@ DEVICE = (
 )
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
+DATA_PATH = DEFAULT_PATH + 'data/PEMS08/'
 
 # Fixed parameters (DO NOT TUNE)
 HORIZON = 12  # Predicting 12 time steps ahead
@@ -116,8 +116,8 @@ def create_objective(data, batches, temporal_emb_dim, models_dir, results_dir, s
         
         # Suggest hyperparameters
         hidden_dim = trial.suggest_categorical('hidden_dim', [64, 96, 128, 192])
-        gat_heads = trial.suggest_categorical('gat_heads', [2, 4, 8])
-        num_layers = trial.suggest_int('num_layers', 4, 12, step=2)
+        gat_heads = trial.suggest_categorical('gat_heads', [3, 8])
+        num_layers = trial.suggest_int('num_layers', 15, 30, step=2)
         dropout = trial.suggest_float('dropout', 0.1, 0.3, step=0.05)
         lr = trial.suggest_float('lr', 1e-5, 1e-3, log=True)
         weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-4, log=True)
@@ -161,7 +161,7 @@ def create_objective(data, batches, temporal_emb_dim, models_dir, results_dir, s
             dtype=DTYPE,
             temp_dim=temporal_emb_dim,
             heads=gat_heads,
-            laplacian_components=36,
+            laplacian_components=20,
             dropout=dropout
         )
         
@@ -306,7 +306,7 @@ if __name__ == "__main__":
     # Create initial batches (will be recreated in each trial with different batch_size)
     batches = BatchBuilder(
         data, 
-        batch_size=32,  # Default, will be overridden
+        batch_size=64,  # Default, will be overridden
         sequence_len=SEQUENCE_LEN, 
         horizon=HORIZON,
         val_ratio=0.2,
