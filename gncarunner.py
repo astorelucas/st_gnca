@@ -103,6 +103,7 @@ if __name__ == "__main__":
             project=config["wandb"]["project"],
             config={k: v for k, v in config.items() if k != "wandb"},
             name=f"gnca_forecasting_{dataset.lower()}_horizon-{config["forecasting"]["horizon"]}_{current_ts}",
+            dir=config["wandb"].get("output_folder", None)
         )
 
     print("Starting model's configuration...")
@@ -204,6 +205,8 @@ if __name__ == "__main__":
     )
     
     run.log({"training_validation_loss_plot": fig})
+    
+    df_predictions_dir = config["wandb"].get("output_folder", "./")
 
     results = test_gnca_model(
         gnca,
@@ -212,13 +215,14 @@ if __name__ == "__main__":
         device=DEVICE,
         save_predictions_path=DEFAULT_PATH + "results/gnca_test_results.pth",
         scaler=data.value_embedding.embedder,
+        df_predictions_dir=df_predictions_dir
     )
     print(results)
     
     run.log({"test_metrics": results['metrics']})
     
     artifact = wandb.Artifact(name="gnca_predictions_and_targets", type="dataset")
-    artifact.add_file('results_testing_raw.csv')
+    artifact.add_file(str(Path(df_predictions_dir).joinpath('results_testing_raw.csv')))
     run.log_artifact(artifact)
     
     run.finish()

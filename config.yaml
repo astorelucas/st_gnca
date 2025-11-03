@@ -17,3 +17,4 @@ wandb:
   enabled: true
   entity: ufmg-deep-learning
   project: st_gnca_forecasting
+  output_folder: /scratch/ayala
