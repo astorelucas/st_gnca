@@ -18,7 +18,7 @@ class GraphCellularAutomata(nn.Module):
     self.cell_model = kwargs.get('cell_model', None)
     self.device = kwargs.get('device', DEVICE)
     self.dtype = kwargs.get('dtype', torch.float32)
-    self.hidden_dim = self.cell_model.hidden_dim
+    self.hidden_dim = kwargs.get('hidden_dim', self.cell_model.hidden_dim)
     self.feature_dim = self.cell_model.feature_dim
     self.output_dim = self.cell_model.output_dim
     self.temp_dim = kwargs.get('temp_dim', 4)  

@@ -6,7 +6,7 @@ from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_traini
 from tqdm.auto import tqdm
 import time
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, val_loader=None):
+def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, run, save_path=None, val_loader=None):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -60,7 +60,9 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
         validation_losses.append(val_loss)
         print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
         scheduler.step(val_loss)
-
+        # Live metrics with Weights and Biases 
+        run.log({"epoch": epoch + 1, "train_loss": epoch_loss, "val_loss": val_loss})
+        
         early_stopping(val_loss, gnca)
 
         if early_stopping.early_stop:
@@ -79,6 +81,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             os.makedirs(save_dir, exist_ok=True)
         torch.save(gnca.state_dict(), save_path)
         print(f"Model saved to: {save_path}")
+        run.log_model(path=save_path, name="gnca_model")
     
     return avg_loss, training_losses, validation_losses
 
@@ -174,7 +177,7 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
     """
     preds_list = []
     targets_list = []
-
+    df = None
     with torch.no_grad():
         for X_batch, y_batch in tqdm(test_loader, unit="batch", leave=False):
             X_batch = X_batch.to(device)

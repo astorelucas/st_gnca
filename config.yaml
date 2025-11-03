@@ -1,0 +1,19 @@
+forecasting:
+  dataset: PEMS04
+  sequence_len: 12
+  horizon: 12
+  batch_size: 64
+  epochs: 4
+gat:
+  heads: 3
+  dropout: 0.15
+  laplacian_components: 20
+  hidden_dim: 256
+lstm:
+  layers: 1
+  dropout: 0.15
+  hidden_dim: 256
+wandb:
+  enabled: true
+  entity: ufmg-deep-learning
+  project: st_gnca_forecasting
