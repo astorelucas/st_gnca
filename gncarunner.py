@@ -33,7 +33,7 @@ DEVICE = (
 )
 DTYPE = torch.float32
 DEFAULT_PATH = 'st_gnca/'
-DATA_PATH = DEFAULT_PATH + 'data/PEMS08/'
+DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 # Fixed parameters (DO NOT TUNE)
 HORIZON = 12  # Predicting 12 time steps ahead
