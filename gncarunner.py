@@ -113,10 +113,10 @@ if __name__ == "__main__":
         
     print("DataBase initialized.")
     horizon = 12  # Predicting 12 time steps ahead
-    sequence_len = 36  # Using past 36 time steps
+    sequence_len = 12  # Using past 24 time steps
 
     batches = BatchBuilder(data, 
-                           batch_size=32, 
+                           batch_size=64, 
                            sequence_len=sequence_len, 
                            horizon=horizon,
                            val_ratio=0.2,
@@ -127,8 +127,8 @@ if __name__ == "__main__":
     print("BatchBuilder initialized.")
 
     print("Starting model's configuration...")
-    hidden_dim = 96
-    gat_heads = 2
+    hidden_dim = 256
+    gat_heads = 3
     output_dim = horizon
 
     temporal_emb_dim = data.temporal_features.size(1)
@@ -178,7 +178,7 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
         graph=data.G,
-        num_layers=8,
+        num_layers=1,
         dropout=0.15
     )
 
