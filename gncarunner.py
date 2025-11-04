@@ -188,7 +188,7 @@ def create_objective(data, batches, temporal_emb_dim, models_dir, results_dir, s
                 trial_batches.get_train_loader(), 
                 optimizer=optimizer, 
                 criterion=criterion,
-                num_epochs=30,  # You can adjust this if needed
+                num_epochs=1,  # You can adjust this if needed
                 device=DEVICE,
                 return_history=True,
                 save_path=model_save_path,
