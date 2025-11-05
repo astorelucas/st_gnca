@@ -17,7 +17,8 @@ class DataBase:
         self.G = nx.Graph()
 
         self.data = pd.read_csv(kwargs.get('data_file', 'data.csv'), engine='pyarrow')
-        self.data = self.data.iloc[:, :-1]
+        columns_to_drop = ['']
+        self.data.drop(columns=columns_to_drop, axis=1, inplace=True)
 
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
@@ -40,6 +41,7 @@ class DataBase:
         self.edge_weight = torch.tensor([self.G[u][v]['weight'] for u, v in self.G.edges()]).to(self.device)
 
         self.num_sensors = self.G.number_of_nodes()
+        print(f'num de sensors: {self.num_sensors}')
 
         self.sensor_data = self._normalize_data()
 
@@ -85,6 +87,8 @@ class DataBase:
         return sensor_data
 
     def concat_features(self):
+        print(f'temporal : {self.temporal_features.shape}')
+        print(f'sensor_data : { self.sensor_data.shape}')
         combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
         return combined
 
