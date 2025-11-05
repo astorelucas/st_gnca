@@ -11,7 +11,7 @@ class GNCAExperiment(Experiment):
         learning_rate = kwargs.get('learning_rate', 0.001)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
-    def training_loop(self, data_loader):
+    def training_loop(self, data_loader): #TODO trocar aqui pra so a funcao de treinamento
         """Loop de treinamento iterando sobre batches"""
         self.model.train()
         total_loss = 0
@@ -39,7 +39,7 @@ class GNCAExperiment(Experiment):
         avg_loss = total_loss / num_batches if num_batches > 0 else 0
         return avg_loss
 
-    def validation_loop(self, data_loader):
+    def validation_loop(self, data_loader): #TODO no training loop do GNCA ja tem, talvez nao precise
         """Loop de validação para avaliar o modelo"""
         self.model.eval()
         total_loss = 0

@@ -25,7 +25,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             optimizer, mode='min', factor=0.5, patience=3
         )
 
-    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.0001, path=save_path)
+    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.0001, path=save_path) #TODO talvez aumentar o patience pra 10 e o delta diminuir uma casa decimal
 
     for epoch in range(num_epochs):
         gnca.train()

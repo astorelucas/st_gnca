@@ -19,7 +19,7 @@ class GNCA(Model):
                                    edge_index, cfg, dropout)
 
     def forward(self, x):
-        return self.model.forward(x)
+        return self.model.forward(x) # TODO trocar aqui do TFT pro GNCA 
     
     def parameters(self):
         return self.model.parameters()

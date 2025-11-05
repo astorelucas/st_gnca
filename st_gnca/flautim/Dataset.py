@@ -26,7 +26,7 @@ class SplitDataset(Dataset):
 class PEMSDataset(Dataset):
 
     def __init__(self, **kwargs):
-        super(PEMSDataset, self).__init__(name = "PEMS", **kwargs)
+        super(PEMSDataset, self).__init__(name = "PEMS03", **kwargs)
 
         self.db = database.DataBase(**kwargs)
 
