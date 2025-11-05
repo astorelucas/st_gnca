@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 
+
 from st_gnca.training.gncatraining import (
     train_gnca_model, 
     plot_training_loss, 
@@ -21,6 +22,7 @@ from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.training.evaluate import HybridLoss
 
 
+
 # Setup device and data types
 DEVICE = (
     torch.device('cuda') if torch.cuda.is_available()
@@ -32,10 +34,11 @@ DEFAULT_PATH = 'st_gnca/'
 DATA_PATH = DEFAULT_PATH + 'data/PEMS03/'
 
 
+
 def parse_arguments():
-    """Parse command line arguments for save_path and save_suffix."""
+    """Parse command line arguments for save_path, save_suffix, and horizon."""
     parser = argparse.ArgumentParser(
-        description='Train and test GNCA model with optional custom save paths and suffixes.'
+        description='Train and test GNCA model with optional custom save paths, suffixes, and horizon.'
     )
     parser.add_argument(
         '--save_path',
@@ -49,7 +52,14 @@ def parse_arguments():
         default='__DEFAULT__',
         help='Suffix for saved files. Use "__DEFAULT__" for timestamp. Default: __DEFAULT__'
     )
+    parser.add_argument(
+        '--horizon',
+        type=int,
+        default=12,
+        help='Number of time steps to predict ahead. Default: 12'
+    )
     return parser.parse_args()
+
 
 
 def get_save_suffix(save_suffix_arg):
@@ -63,6 +73,7 @@ def get_save_suffix(save_suffix_arg):
     return save_suffix_arg
 
 
+
 def ensure_directories(save_path):
     """Create necessary directories if they don't exist."""
     models_dir = Path(save_path) / 'saved_models'
@@ -74,6 +85,7 @@ def ensure_directories(save_path):
     return str(models_dir), str(results_dir)
 
 
+
 # Usage example
 if __name__ == "__main__":
     print("Parsing command line arguments...")
@@ -82,14 +94,17 @@ if __name__ == "__main__":
     # Get save suffix (with timestamp if __DEFAULT__)
     save_suffix = get_save_suffix(args.save_suffix)
     save_path = args.save_path
+    horizon = args.horizon
     
     print(f"Save path: {save_path}")
     print(f"Save suffix: {save_suffix}")
+    print(f"Horizon: {horizon}")
     
     # Create directories
     models_dir, results_dir = ensure_directories(save_path)
     
     print("Setting up model configuration...")
+
 
     '''
     Notes:
@@ -99,6 +114,7 @@ if __name__ == "__main__":
     - The data-preprocessed.csv should not have missing values (NaNs)
     - The data-preprocessed.csv should be in chronological order
     '''
+
 
     try:
         data = DataBase(
@@ -112,8 +128,9 @@ if __name__ == "__main__":
         )
         
     print("DataBase initialized.")
-    horizon = 12  # Predicting 12 time steps ahead
-    sequence_len = 12  # Using past 36 time steps
+    # Use horizon from arguments (default 12)
+    sequence_len = 12  # Using past 12 time steps
+
 
     batches = BatchBuilder(data, 
                            batch_size=64, 
@@ -126,17 +143,21 @@ if __name__ == "__main__":
     
     print("BatchBuilder initialized.")
 
+
     print("Starting model's configuration...")
     hidden_dim = 256
     gat_heads = 3
     output_dim = horizon
+
 
     temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
     feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
+
     # input_len = feature_dim
+
 
 #     print(f"Cell model initialization")
 #     xlstm_config = xLSTMBlockStackConfig(
@@ -172,6 +193,7 @@ if __name__ == "__main__":
 #         cfg=xlstm_config
 #     )
 
+
     cell_model = LSTMForecast(
         feature_dim=feature_dim,
         output_dim=output_dim,
@@ -181,6 +203,7 @@ if __name__ == "__main__":
         num_layers=1,
         dropout=0.15
     )
+
 
     print(f"GNCA model initialization")
     gnca = GraphCellularAutomata(
@@ -194,20 +217,23 @@ if __name__ == "__main__":
         dropout=0.15
     )
 
+
     print("Model configuration completed.")
     print("Starting training...")
     print(f"Device available: {DEVICE}")
+
 
     # Construct save paths with suffix
     model_save_path = str(Path(models_dir) / f'gnca_model_{save_suffix}.pth')
     loss_plot_path = str(Path(results_dir) / f'gnca_training_loss_{save_suffix}.png')
     test_results_path = str(Path(results_dir) / f'gnca_test_results_{save_suffix}.pth')
 
+
     avg_loss, training_losses = train_gnca_model(gnca, 
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
                                     criterion=SmoothL1Loss(beta=0.8),
-                                    num_epochs=4,  # Increased since we have early stopping
+                                    num_epochs=50,  # Increased since we have early stopping
                                     device=DEVICE,
                                     return_history=True,
                                     save_path=model_save_path,
@@ -216,11 +242,13 @@ if __name__ == "__main__":
     
     print("Training completed.")
 
+
     plot_training_loss(
         training_losses,
         save_path=loss_plot_path,
         show=False
     )
+
 
     results = test_gnca_model(gnca, 
                     batches.get_test_loader(), 
@@ -231,5 +259,6 @@ if __name__ == "__main__":
                     )
     
     print(results)
+
 
     print("Testing completed.")
