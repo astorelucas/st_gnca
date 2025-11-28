@@ -2,11 +2,29 @@ import torch
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
-from st_gnca.training.evaluate import MAPE, SMAPE, MAE, RMSE, nRMSE, save_training_losses_csv
+from st_gnca.training.evaluate import (
+    MAPE,
+    SMAPE,
+    MAE,
+    RMSE,
+    nRMSE,
+    save_training_losses_csv,
+)
 from tqdm.auto import tqdm
 import time
 
-def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, device, save_path=None, val_loader=None):
+
+def train_gnca_model(
+    gnca,
+    train_loader,
+    optimizer,
+    criterion,
+    num_epochs,
+    device,
+    run,
+    save_path=None,
+    val_loader=None,
+):
     """
     Train GNCA and optionally save the model state_dict to save_path after training completes.
 
@@ -17,24 +35,31 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
     validation_losses = []
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.5, patience=3
-        )
+        optimizer, mode="min", factor=0.5, patience=3
+    )
 
-    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.001, path=save_path)
+    early_stopping = EarlyStopping(
+        patience=3, verbose=True, delta=0.001, path=save_path
+    )
 
     for epoch in range(num_epochs):
         start_time = time.time()
         gnca.train()
         total_loss = 0.0
         n_batches = 0
-        for X_batch, y_batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch", leave=False):
+        for X_batch, y_batch in tqdm(
+            train_loader,
+            desc=f"Epoch {epoch+1}/{num_epochs}",
+            unit="batch",
+            leave=False,
+        ):
 
             optimizer.zero_grad()
 
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
 
-            outputs = gnca.call_model(X_batch, mode='train')
+            outputs = gnca.call_model(X_batch, mode="train")
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
@@ -51,7 +76,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
 
             total_loss += loss.item()
             n_batches += 1
-        
+
         epoch_loss = total_loss / n_batches if n_batches > 0 else 0.0
         training_losses.append(epoch_loss)
         print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {epoch_loss:.4f}")
@@ -60,18 +85,21 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
         validation_losses.append(val_loss)
         print(f"Epoch [{epoch+1}/{num_epochs}], Val Loss: {val_loss:.4f}")
         scheduler.step(val_loss)
+        # Live metrics with Weights and Biases
+        run.log({"epoch": epoch + 1, "train_loss": epoch_loss, "val_loss": val_loss})
 
         early_stopping(val_loss, gnca)
 
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
-    
+
         end_time = time.time()
         print("Time to calculate epoch: " + str(end_time - start_time) + "s")
 
-
-    avg_loss = sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
+    avg_loss = (
+        sum(training_losses) / len(training_losses) if len(training_losses) > 0 else 0.0
+    )
 
     if save_path:
         save_dir = os.path.dirname(save_path)
@@ -79,8 +107,10 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             os.makedirs(save_dir, exist_ok=True)
         torch.save(gnca.state_dict(), save_path)
         print(f"Model saved to: {save_path}")
-    
+        run.log_model(path=save_path, name="gnca_model")
+
     return avg_loss, training_losses, validation_losses
+
 
 def evaluate_gnca_model(gnca, val_loader, criterion, device):
     """
@@ -106,7 +136,7 @@ def evaluate_gnca_model(gnca, val_loader, criterion, device):
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
 
-            outputs = gnca.call_model(X_batch, mode='val')
+            outputs = gnca.call_model(X_batch, mode="val")
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
@@ -122,7 +152,10 @@ def evaluate_gnca_model(gnca, val_loader, criterion, device):
     avg_loss = total_loss / n_batches if n_batches > 0 else 0.0
     return avg_loss
 
-def plot_training_loss(training_losses, validation_losses=None, save_path: str = None, show: bool = False):
+
+def plot_training_loss(
+    training_losses, validation_losses=None, save_path: str = None, show: bool = False
+):
     """
     Build and return a matplotlib Figure showing training and validation loss per epoch.
 
@@ -139,15 +172,15 @@ def plot_training_loss(training_losses, validation_losses=None, save_path: str =
 
     fig, ax = plt.subplots(figsize=(6, 4))
     epochs = list(range(1, len(training_losses) + 1))
-    ax.plot(epochs, training_losses, linestyle='-', label='Training Loss')
+    ax.plot(epochs, training_losses, linestyle="-", label="Training Loss")
 
     if validation_losses:
         val_epochs = list(range(1, len(validation_losses) + 1))
-        ax.plot(val_epochs, validation_losses, linestyle='--', label='Validation Loss')
+        ax.plot(val_epochs, validation_losses, linestyle="--", label="Validation Loss")
 
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('Training and Validation Loss per Epoch')
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("Training and Validation Loss per Epoch")
     ax.legend()
     ax.grid(True)
     plt.tight_layout()
@@ -161,7 +194,16 @@ def plot_training_loss(training_losses, validation_losses=None, save_path: str =
 
     return fig
 
-def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: str = None, scaler=None):
+
+def test_gnca_model(
+    gnca,
+    test_loader,
+    temp_dim,
+    device,
+    save_predictions_path: str = None,
+    df_predictions_dir: str = None,
+    scaler=None,
+):
     """
     Run inference on test_loader and return aggregated metrics and predictions.
 
@@ -174,13 +216,13 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
     """
     preds_list = []
     targets_list = []
-
+    df = None
     with torch.no_grad():
         for X_batch, y_batch in tqdm(test_loader, unit="batch", leave=False):
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
 
-            outputs = gnca.call_model(X_batch, mode='val') 
+            outputs = gnca.call_model(X_batch, mode="val")
 
             # Remove temporal features
             output_dim = outputs.shape[-2]
@@ -203,22 +245,30 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
     targets = torch.cat(targets_list, dim=0) if targets_list else torch.empty((0,))
 
     if preds.numel() == 0 or targets.numel() == 0:
-        metrics = {'mape': float('nan'), 'smape': float('nan'), 'mae': float('nan'),
-                   'rmse': float('nan'), 'nrmse': float('nan')}
+        metrics = {
+            "mape": float("nan"),
+            "smape": float("nan"),
+            "mae": float("nan"),
+            "rmse": float("nan"),
+            "nrmse": float("nan"),
+        }
     else:
         metrics = {
-            'mape': MAPE(targets, preds).cpu().item(),
-            'smape': SMAPE(targets, preds).cpu().item(),
-            'mae': MAE(targets, preds).cpu().item(),
-            'rmse': RMSE(targets, preds).cpu().item(),
-            'nrmse': nRMSE(targets, preds).cpu().item(),
+            "mape": MAPE(targets, preds).cpu().item(),
+            "smape": SMAPE(targets, preds).cpu().item(),
+            "mae": MAE(targets, preds).cpu().item(),
+            "rmse": RMSE(targets, preds).cpu().item(),
+            "nrmse": nRMSE(targets, preds).cpu().item(),
         }
         metrics_save = pd.DataFrame([metrics])
         metrics_save.to_csv("test_metrics.csv", index=False)
 
     if save_predictions_path:
         os.makedirs(os.path.dirname(save_predictions_path) or ".", exist_ok=True)
-        torch.save({'preds': preds, 'targets': targets, 'metrics': metrics}, save_predictions_path)
+        torch.save(
+            {"preds": preds, "targets": targets, "metrics": metrics},
+            save_predictions_path,
+        )
         print(f"Test predictions and metrics saved to: {save_predictions_path}")
 
         results = torch.load(save_predictions_path)
@@ -229,19 +279,27 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
         preds = preds.reshape(-1, preds.shape[-1])
         targets = targets.reshape(-1, targets.shape[-1])
 
-        df = pd.DataFrame({
-            **{f"pred_{i}": preds[:, i] for i in range(preds.shape[1])},
-            **{f"target_{i}": targets[:, i] for i in range(targets.shape[1])},
-        })
+        df = pd.DataFrame(
+            {
+                **{f"pred_{i}": preds[:, i] for i in range(preds.shape[1])},
+                **{f"target_{i}": targets[:, i] for i in range(targets.shape[1])},
+            }
+        )
+        if df_predictions_dir:
+            os.makedirs(df_predictions_dir, exist_ok=True)
+            df_results_path = os.path.join(
+                df_predictions_dir, "results_testing_raw.csv"
+            )
+            df.to_csv(df_results_path, index=False)
+            print(f"Test predictions and targets saved to: {df_results_path}")
+        else:
+            df.to_csv("results_testing_raw.csv", index=False)
 
-        df.to_csv("results_testing_raw.csv", index=False)
-
-
-    return {'metrics': metrics, 'preds': preds, 'targets': targets}
+    return {"metrics": metrics, "preds": preds, "targets": targets}
 
 
 class EarlyStopping:
-    def __init__(self, patience=5, verbose=False, delta=0, path='checkpoint.pt'):
+    def __init__(self, patience=5, verbose=False, delta=0, path="checkpoint.pt"):
         """
         Implements early stopping to terminate training when validation loss does not improve.
 
@@ -260,7 +318,7 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.val_loss_min = float('inf')
+        self.val_loss_min = float("inf")
         self.delta = delta
         self.path = path
 
@@ -284,6 +342,8 @@ class EarlyStopping:
     def save_checkpoint(self, val_loss, model):
         """Saves model when validation loss decreases."""
         if self.verbose:
-            print(f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...")
+            print(
+                f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ..."
+            )
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss

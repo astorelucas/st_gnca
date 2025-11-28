@@ -2,6 +2,9 @@
 import torch
 from torch import nn
 from tensordict import TensorDict
+from pathlib import Path
+
+import yaml
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -123,3 +126,8 @@ class TensorDictDataframe:
       self.numeric_data = self.numeric_data.to(*args, **kwargs)
       self.nonnumeric_data = self.nonnumeric_data.to(*args, **kwargs)
     return self
+  
+def load_yaml_config(file_path):
+  with Path(file_path).open('r') as f:
+    config = yaml.safe_load(f)
+  return config
