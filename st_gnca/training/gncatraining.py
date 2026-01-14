@@ -239,6 +239,55 @@ def test_gnca_model(gnca, test_loader, temp_dim, device, save_predictions_path: 
 
     return {'metrics': metrics, 'preds': preds, 'targets': targets}
 
+def test_gnca_model_modules(gnca_models, gnca, selected_nodes, test_loader, temp_dim, device, save_predictions_path: str = None, scaler=None):
+    """
+    """
+    preds_list = []
+    targets_list = []
+
+
+
+    with torch.no_grad():
+        for X_batch, y_batch in tqdm(test_loader, unit="batch", leave=False):
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            outputs = gnca.call_model_modules(X_batch, selected_nodes, gnca_models, mode='val') 
+
+            # Remove temporal features
+            output_dim = outputs.shape[-2]
+            y_target = y_batch[..., -output_dim:].contiguous()
+
+            outputs = outputs.permute(0, 2, 1).contiguous()
+
+            # --- Denormalize both outputs and targets before metrics ---
+            if scaler is not None:
+                y_target_denorm = scaler.denormalize(y_target.detach())
+                outputs_denorm = scaler.denormalize(outputs.detach())
+            else:
+                y_target_denorm = y_target
+                outputs_denorm = outputs
+
+            preds_list.append(outputs_denorm.cpu())
+            targets_list.append(y_target_denorm.cpu())
+
+    preds = torch.cat(preds_list, dim=0) if preds_list else torch.empty((0,))
+    targets = torch.cat(targets_list, dim=0) if targets_list else torch.empty((0,))
+
+    if preds.numel() == 0 or targets.numel() == 0:
+        metrics = {'mape': float('nan'), 'smape': float('nan'), 'mae': float('nan'),
+                   'rmse': float('nan'), 'nrmse': float('nan')}
+    else:
+        metrics = {
+            'mape': MAPE(targets, preds).cpu().item(),
+            'smape': SMAPE(targets, preds).cpu().item(),
+            'mae': MAE(targets, preds).cpu().item(),
+            'rmse': RMSE(targets, preds).cpu().item(),
+            'nrmse': nRMSE(targets, preds).cpu().item(),
+        }
+        metrics_save = pd.DataFrame([metrics])
+        metrics_save.to_csv("test_metrics.csv", index=False)    
+
 
 class EarlyStopping:
     def __init__(self, patience=5, verbose=False, delta=0, path='checkpoint.pt'):
