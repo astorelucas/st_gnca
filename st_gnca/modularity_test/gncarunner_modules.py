@@ -33,8 +33,8 @@ if __name__ == "__main__":
     batches = BatchBuilder(
         data,
         batch_size=64,
-        sequence_len=12,
-        horizon=3,
+        sequence_len=36,
+        horizon=12,
         val_ratio=0.2,
         train_ratio=0.6,
         device=DEVICE,
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # --- model config (use same hyperparams as no treinamento original) ---
     hidden_dim = 256
     gat_heads = 3
-    horizon = 3
+    horizon = 12
     temporal_emb_dim = data.temporal_features.size(1)
     feature_dim = temporal_emb_dim + (2 * hidden_dim * gat_heads)
     output_dim = horizon
@@ -78,25 +78,30 @@ if __name__ == "__main__":
     gnca_models = []
 
     for model in models_pretrained:
-        print(f"\n--- Loading model {model}/{models_pretrained} ---")
-        ckpt = torch.load(f'st_gnca/modularity_test/gnca_model_{model}.pth', map_location=DEVICE)
+        print(f"\n--- Loading model {model} ---")
 
-         # ckpt é OrderedDict => foi salvo via model.state_dict()
+        ckpt = torch.load(
+            f'st_gnca/modularity_test/gnca_model_{model}.pth',
+            map_location=DEVICE
+        )
+
         if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
-             state = ckpt['model_state_dict']
+            state = ckpt['model_state_dict']
         else:
-             state = ckpt
-    
-        # carregar pesos; usar strict=False para inspecionar chaves faltantes/inesperadas
+            state = ckpt
+
         load_res = gnca.load_state_dict(state, strict=False)
-        print("Loaded state_dict. Missing keys:", load_res.missing_keys)
+
+        print("Missing keys:", load_res.missing_keys)
         print("Unexpected keys:", load_res.unexpected_keys)
 
-        gnca_models.append(load_res)
+        gnca.eval()  # inferência
 
-    # num_epochs = epochs  # já definido acima
-    save_path = "gnca_finetuned.pth"
-    selected_nodes = [0, 1, 2]  # Exemplo de nós selecionados
+        gnca_models.append(gnca)
+
+
+    save_path = "gnca_modularity_test.pth"
+    selected_nodes = [6, 12, 39, 41, 44, 45, 47, 64, 71, 77, 103, 106, 107, 116, 145, 147, 150, 151, 158, 161, 168]
 
     results = test_gnca_model_modules(gnca_models, 
                                       gnca,
@@ -104,7 +109,7 @@ if __name__ == "__main__":
                                       batches.get_test_loader(),
                                       temp_dim=temporal_emb_dim,
                                       device=DEVICE,
-                                      save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results_finetuning.pth',
+                                      save_predictions_path=DEFAULT_PATH + 'results/gnca_modularity_test.pth',
                                       scaler=data.value_embedding.embedder
                     )
 

@@ -136,7 +136,7 @@ class GraphCellularAutomata(nn.Module):
     self.cell_model.train(mode=(kwargs.get('mode', 'train') == 'train'))
 
     xt_filtered = X_batch[:, :, self.temp_dim:]  
-    x_linear = self.Linear_in(xt_filtered.unsqueeze(-1)) 
+    x_linear = self.Linear_in(xt_filtered.unsqueeze(-1))
 
     spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
     self.scaler.fit(spatial_embedder)
@@ -161,17 +161,13 @@ class GraphCellularAutomata(nn.Module):
     outputs = []
 
     model_0 = gnca_models[0]
-    model_0.to(self.device)
-    model_0.eval()
 
     model = gnca_models[1]
-    model.to(self.device)
-    model.eval()
 
     X_batch = X_batch.to(self.device)
     self.cell_model.X_batch_graph = X_batch
 
-    self.cell_model.train('eval')
+    self.cell_model.train(mode=(kwargs.get('mode', 'train') == 'train'))
 
     xt_filtered = X_batch[:, :, self.temp_dim:]  
 

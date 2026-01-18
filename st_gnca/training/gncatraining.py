@@ -245,8 +245,6 @@ def test_gnca_model_modules(gnca_models, gnca, selected_nodes, test_loader, temp
     preds_list = []
     targets_list = []
 
-
-
     with torch.no_grad():
         for X_batch, y_batch in tqdm(test_loader, unit="batch", leave=False):
             X_batch = X_batch.to(device)
@@ -288,6 +286,27 @@ def test_gnca_model_modules(gnca_models, gnca, selected_nodes, test_loader, temp
         metrics_save = pd.DataFrame([metrics])
         metrics_save.to_csv("test_metrics.csv", index=False)    
 
+    if save_predictions_path:
+        os.makedirs(os.path.dirname(save_predictions_path) or ".", exist_ok=True)
+        torch.save({'preds': preds, 'targets': targets, 'metrics': metrics}, save_predictions_path)
+        print(f"Test predictions and metrics saved to: {save_predictions_path}")
+
+        results = torch.load(save_predictions_path)
+
+        preds = results["preds"].cpu().numpy()
+        targets = results["targets"].cpu().numpy()
+
+        preds = preds.reshape(-1, preds.shape[-1])
+        targets = targets.reshape(-1, targets.shape[-1])
+
+        df = pd.DataFrame({
+            **{f"pred_{i}": preds[:, i] for i in range(preds.shape[1])},
+            **{f"target_{i}": targets[:, i] for i in range(targets.shape[1])},
+        })
+
+        df.to_csv("results_modularity_testing_raw.csv", index=False)
+
+    return {'metrics': metrics, 'preds': preds, 'targets': targets}
 
 class EarlyStopping:
     def __init__(self, patience=5, verbose=False, delta=0, path='checkpoint.pt'):
