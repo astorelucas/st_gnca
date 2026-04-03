@@ -162,7 +162,7 @@ class GraphCellularAutomata(nn.Module):
 
     model_0 = gnca_models[0]
 
-    model = gnca_models[1]
+    model_1 = gnca_models[1]
 
     X_batch = X_batch.to(self.device)
     self.cell_model.X_batch_graph = X_batch
@@ -172,7 +172,9 @@ class GraphCellularAutomata(nn.Module):
     xt_filtered = X_batch[:, :, self.temp_dim:]  
 
     for sensor in sorted(self.graph.nodes):
-        if sensor in selected_nodes:
+        # print(f"Current sensor: {sensor}")
+        if sensor not in selected_nodes:
+            # print(f"Processing sensor: {sensor} with model_0")
             x_linear = model_0.Linear_in(xt_filtered.unsqueeze(-1)) 
 
             spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
@@ -188,7 +190,7 @@ class GraphCellularAutomata(nn.Module):
             y_pred = model_0.cell_model(sensor, gat_embedder, x_time, subset_nodes)
             outputs.append(y_pred)
         else:
-            x_linear = model.Linear_in(xt_filtered.unsqueeze(-1)) 
+            x_linear = model_1.Linear_in(xt_filtered.unsqueeze(-1)) 
 
             spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
             self.scaler.fit(spatial_embedder)
@@ -199,11 +201,14 @@ class GraphCellularAutomata(nn.Module):
 
             x_time = X_batch[:, :, 0:self.temp_dim]  
 
-            gat_embedder, subset_nodes = model._subgat_spatial_embedder(encoder, sensor)
-            y_pred = model.cell_model(sensor, gat_embedder, x_time, subset_nodes)
+            gat_embedder, subset_nodes = model_1._subgat_spatial_embedder(encoder, sensor)
+            y_pred = model_1.cell_model(sensor, gat_embedder, x_time, subset_nodes)
             outputs.append(y_pred)
 
+    # print(f"shape of outputs list: {len(outputs)}")
     stacked_outputs = torch.stack(outputs, dim=1)
+
+    # print(f"shape of stacked_outputs: {stacked_outputs.shape}")
 
     return stacked_outputs
            

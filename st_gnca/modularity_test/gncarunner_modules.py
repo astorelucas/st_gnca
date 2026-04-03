@@ -1,11 +1,11 @@
 # This is a test file for the GNCARunner module
 import sys
 from pathlib import Path
-
+import torch
 # coloca o diretório raiz do repositório no sys.path (pai de "st_gnca")
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import torch
+
 import torch.nn as nn
 from st_gnca.globalmodel.gnca import GraphCellularAutomata
 from st_gnca.cellmodel.cell_model import LSTMForecast
@@ -27,8 +27,8 @@ DEFAULT_PATH = 'st_gnca/'
 if __name__ == "__main__":
     # --- data ---
     data = DataBase(
-        edges_file=DATA_PATH + 'edges_normalized.csv',
-        data_file=DATA_PATH + 'data-preprocessed.csv'
+        edges_file=DATA_PATH + 'edges_Region4_LC.csv',
+        data_file=DATA_PATH + 'data_Region4_LC.csv'
     )
     batches = BatchBuilder(
         data,
@@ -90,6 +90,30 @@ if __name__ == "__main__":
         else:
             state = ckpt
 
+        # If checkpoint contains scaler buffers, ensure model has buffers of same shape
+        if 'scaler.mu' in state and 'scaler.sigma' in state:
+            mu_shape = state['scaler.mu'].shape
+            sigma_shape = state['scaler.sigma'].shape
+            try:
+                if hasattr(gnca, 'scaler') and isinstance(gnca.scaler, torch.nn.Module):
+                    # register buffers only if not already present or wrong shape
+                    existing = dict(gnca.scaler.named_buffers())
+                    if 'mu' not in existing or existing['mu'].shape != mu_shape:
+                        if 'mu' in dict(gnca.scaler._buffers):
+                            del gnca.scaler._buffers['mu']
+                        gnca.scaler.register_buffer('mu', torch.zeros(mu_shape, device=DEVICE, dtype=DTYPE))
+                    if 'sigma' not in existing or existing['sigma'].shape != sigma_shape:
+                        if 'sigma' in dict(gnca.scaler._buffers):
+                            del gnca.scaler._buffers['sigma']
+                        gnca.scaler.register_buffer('sigma', torch.zeros(sigma_shape, device=DEVICE, dtype=DTYPE))
+                else:
+                    # fallback: set attributes on gnca
+                    gnca.scaler_mu = torch.zeros(mu_shape, device=DEVICE, dtype=DTYPE)
+                    gnca.scaler_sigma = torch.zeros(sigma_shape, device=DEVICE, dtype=DTYPE)
+            except Exception:
+                pass
+
+        # now safe to load state_dict
         load_res = gnca.load_state_dict(state, strict=False)
 
         print("Missing keys:", load_res.missing_keys)
@@ -101,7 +125,11 @@ if __name__ == "__main__":
 
 
     save_path = "gnca_modularity_test.pth"
-    selected_nodes = [6, 12, 39, 41, 44, 45, 47, 64, 71, 77, 103, 106, 107, 116, 145, 147, 150, 151, 158, 161, 168]
+    # selected_nodes = [6, 12, 39, 41, 44, 45, 47, 64, 71, 77, 103, 106, 107, 116, 145, 147, 150, 151, 158, 161, 168]
+    # selected_nodes = list(data.G.nodes)  # test all nodes
+    # selected_nodes = list(set(data.G.nodes()) - set(selected_nodes1))
+    selected_nodes = [5, 26, 148, 21, 17, 25, 108, 109, 4, 126, 125, 13, 38, 160, 163, 124, 76, 51, 75, 29, 3]
+    # selected_nodes = None
 
     results = test_gnca_model_modules(gnca_models, 
                                       gnca,
@@ -114,3 +142,4 @@ if __name__ == "__main__":
                     )
 
     print(results)
+

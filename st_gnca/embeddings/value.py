@@ -195,3 +195,30 @@ class ZTransform(nn.Module):
         mu = self.mu.to(x.device, x.dtype)
         sigma = self.sigma.to(x.device, x.dtype)
         return (x * sigma) + mu
+    
+    def denormalize_cols(self, x, cols):
+        """
+        Denormalize only selected feature columns.
+
+        Args:
+            x: Tensor with shape [..., K]
+            cols: list or 1D tensor with K feature indices
+        """
+        if torch.isnan(self.mu).any() or torch.isnan(self.sigma).any():
+            raise RuntimeError("ZTransform has not been fitted yet.")
+
+        if not torch.is_tensor(cols):
+            cols = torch.tensor(cols, device=self.mu.device)
+
+        # select only required statistics
+        mu_sel = self.mu[cols].to(x.device, x.dtype)
+        sigma_sel = self.sigma[cols].to(x.device, x.dtype)
+
+        # sanity check
+        if x.shape[-1] != mu_sel.numel():
+            raise RuntimeError(
+                f"Feature mismatch: x has {x.shape[-1]} features, "
+                f"but cols has {mu_sel.numel()}."
+            )
+
+        return (x * sigma_sel) + mu_sel
