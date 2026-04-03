@@ -20,7 +20,7 @@ def train_gnca_model(gnca, train_loader, optimizer, criterion, num_epochs, devic
             optimizer, mode='min', factor=0.5, patience=3
         )
 
-    early_stopping = EarlyStopping(patience=3, verbose=True, delta=0.001, path=save_path)
+    early_stopping = EarlyStopping(patience=10, verbose=True, delta=0.001, path=save_path)
 
     for epoch in range(num_epochs):
         start_time = time.time()

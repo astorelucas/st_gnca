@@ -42,9 +42,12 @@ if __name__ == "__main__":
     - The data-preprocessed.csv should be in chronological order
     '''
 
+    temporal_emb_dim = 12
+
     data = DataBase(
-        edges_file=DATA_PATH + 'PEMS08_ablation_kept_edges.csv',
-        data_file=DATA_PATH + 'PEMS08_ablation_kept_nodes.csv'
+        edges_file=DATA_PATH + 'edges_Global.csv',
+        data_file=DATA_PATH + 'data_Global.csv',
+        temporal_emb_dim=temporal_emb_dim
     )
     print("DataBase initialized.")
     horizon = 12  # Predicting 12 time steps ahead
@@ -71,6 +74,10 @@ if __name__ == "__main__":
     feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
+    layers = 1
+    dropout = 0.15
+    laplacian_comp = 20
+    learning_rate = 0.001
 
     cell_model = LSTMForecast(
         feature_dim=feature_dim,
@@ -78,8 +85,8 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim,
         edge_index=data.edge_index,
         graph=data.G,
-        num_layers=1,
-        dropout=0.15
+        num_layers=layers,
+        dropout=dropout
     )
 
     print(f"GNCA model initialization")
@@ -90,8 +97,8 @@ if __name__ == "__main__":
         dtype=DTYPE,
         temp_dim=temporal_emb_dim,
         heads=gat_heads,
-        laplacian_components=20,  # Number of spatial embedding components
-        dropout=0.15
+        laplacian_components=laplacian_comp,  # Number of spatial embedding components
+        dropout=dropout
     )
 
     print("Model configuration completed.")
@@ -101,9 +108,9 @@ if __name__ == "__main__":
     avg_loss, training_losses, validation_losses = train_gnca_model(
                                     gnca, 
                                     batches.get_train_loader(), 
-                                    optimizer=torch.optim.AdamW(gnca.parameters(), lr=0.0001, weight_decay=1e-5), 
+                                    optimizer=torch.optim.AdamW(gnca.parameters(), lr=learning_rate, weight_decay=1e-5), 
                                     criterion=SmoothL1Loss(beta=0.5),
-                                    num_epochs=4,  
+                                    num_epochs=50,  
                                     device=DEVICE,
                                     save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
                                     val_loader=batches.get_val_loader()

@@ -17,8 +17,8 @@ class DataBase:
         self.G = nx.Graph()
 
         self.data = pd.read_csv(kwargs.get('data_file', 'data.csv'), engine='pyarrow')
-        columns_to_drop = ['']
-        self.data.drop(columns=columns_to_drop, axis=1, inplace=True)
+        columns_to_drop = ['170']
+        self.data.drop(columns=columns_to_drop, inplace=True)
 
         self.data['timestamp'] = pd.to_datetime(self.data['timestamp'].values)
         self.sensor_data_raw = self.data.drop(columns=['timestamp']).values.astype(np.float32)
@@ -52,9 +52,11 @@ class DataBase:
         #     dtype=self.dtype
         # )
 
+        self.temporal_emb_dim = kwargs.get('temporal_emb_dim', 12)
+
         self.temporal_embedding = MultiScaleTemporalEncoding(
             dates=self.data['timestamp'],
-            emb_dim=12,
+            emb_dim=self.temporal_emb_dim,
             device=self.device,
             dtype=self.dtype
         )
