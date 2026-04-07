@@ -52,16 +52,16 @@ class DataBase:
         #     dtype=self.dtype
         # )
 
-        self.temporal_emb_dim = kwargs.get('temporal_emb_dim', 12)
+        # self.temporal_emb_dim = kwargs.get('temporal_emb_dim', 12)
 
-        self.temporal_embedding = MultiScaleTemporalEncoding(
-            dates=self.data['timestamp'],
-            emb_dim=self.temporal_emb_dim,
-            device=self.device,
-            dtype=self.dtype
-        )
+        # self.temporal_embedding = MultiScaleTemporalEncoding(
+        #     dates=self.data['timestamp'],
+        #     emb_dim=self.temporal_emb_dim,
+        #     device=self.device,
+        #     dtype=self.dtype
+        # )
 
-        self.temporal_features = self.temporal_embedding.all()
+        # self.temporal_features = self.temporal_embedding.all()
 
     def _create_sensor_id_map(self):
         """
@@ -89,9 +89,11 @@ class DataBase:
         return sensor_data
 
     def concat_features(self):
-        print(f'temporal : {self.temporal_features.shape}')
+        # print(f'temporal : {self.temporal_features.shape}')
         print(f'sensor_data : { self.sensor_data.shape}')
-        combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
+        # combined = torch.cat((self.temporal_features, self.sensor_data), dim=1)
+        combined = self.sensor_data
+
         return combined
 
 class BatchBuilder:
