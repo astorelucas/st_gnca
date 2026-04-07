@@ -80,7 +80,7 @@ class NeighborhoodTokenizer(nn.Module):
             avg_neighbor_gat = torch.zeros_like(gat_features[:, :, 0, :])
 
         concatenated_tensor = torch.cat(
-            (temporal_features, 
+            (#temporal_features, 
              avg_neighbor_gat, 
              central_node_gat, 
             ),

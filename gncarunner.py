@@ -42,7 +42,7 @@ if __name__ == "__main__":
     - The data-preprocessed.csv should be in chronological order
     '''
 
-    temporal_emb_dim = 12
+    temporal_emb_dim = 0
 
     data = DataBase(
         edges_file=DATA_PATH + 'edges_Global.csv',
@@ -69,9 +69,11 @@ if __name__ == "__main__":
     gat_heads = 3
     output_dim = horizon
 
-    temporal_emb_dim = data.temporal_features.size(1)
+    # temporal_emb_dim = data.temporal_features.size(1)
     value_emb_dim = 1
-    feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
+    # feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
+    feature_dim = ((2*(hidden_dim)*gat_heads))
+
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
     layers = 1
