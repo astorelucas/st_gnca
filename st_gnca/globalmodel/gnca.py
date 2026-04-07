@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch_geometric.nn import GATConv
 from st_gnca.embeddings.value import ZTransform
 from st_gnca.embeddings.spatial import SpatialEmbedding
-from torch_geometric.utils import k_hop_subgraph
+from torch_geometric.utils import k_hop_subgraph, to_undirected
 
 DEVICE = (
     torch.device('cuda') if torch.cuda.is_available()
@@ -46,7 +46,7 @@ class GraphCellularAutomata(nn.Module):
         add_self_loops=True
     ).to(dtype=self.dtype, device=self.gat_device)
 
-    self.edge_index = self.cell_model.edge_index
+    self.edge_index = to_undirected(self.cell_model.edge_index)
     if not isinstance(self.edge_index, torch.Tensor):
         self.edge_index = torch.as_tensor(self.edge_index, dtype=torch.long)
     else:
