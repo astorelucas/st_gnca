@@ -155,7 +155,7 @@ if __name__ == "__main__":
     horizons = [3, 6, 9, 12]
     all_results = []
     
-    experiment_name = "wspatial"
+    experiment_name = "wtemporal"
     
     for h in horizons:
         print(f"\n{'='*40}\nRunning simulation for horizon: {h}\n{'='*40}")
@@ -174,7 +174,7 @@ if __name__ == "__main__":
         })
         
     
-    df_results = pd.DataFrame(all_results)1
+    df_results = pd.DataFrame(all_results)
     csv_path = DEFAULT_PATH + f'results/{experiment_name}_results.csv'
     df_results.to_csv(csv_path, index=False)
     print(f"\nAll simulations completed. Results saved to {csv_path}")
