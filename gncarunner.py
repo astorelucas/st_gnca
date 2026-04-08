@@ -29,7 +29,7 @@ DEFAULT_PATH = 'st_gnca/'
 DATA_PATH = DEFAULT_PATH + 'data/PEMS08/'
 
 # Usage example
-if __name__ == "__main__":
+def simulation(horizon):
     print("Setting up model configuration...")
     start_time = time.time()
 
@@ -50,8 +50,7 @@ if __name__ == "__main__":
         temporal_emb_dim=temporal_emb_dim
     )
     print("DataBase initialized.")
-    horizon = 12  # Predicting 12 time steps ahead
-    sequence_len = 12  # Using past 36 time steps
+    sequence_len = 12  # Using past 12 time steps
 
     batches = BatchBuilder(data, 
                            batch_size=64, 
@@ -69,7 +68,7 @@ if __name__ == "__main__":
     gat_heads = 3
     output_dim = horizon
 
-    temporal_emb_dim = data.temporal_features.size(1)
+    temporal_emb_dim = 12
     value_emb_dim = 1
     feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
@@ -110,9 +109,9 @@ if __name__ == "__main__":
                                     batches.get_train_loader(), 
                                     optimizer=torch.optim.AdamW(gnca.parameters(), lr=learning_rate, weight_decay=1e-5), 
                                     criterion=SmoothL1Loss(beta=0.5),
-                                    num_epochs=50,  
+                                    num_epochs=100,  
                                     device=DEVICE,
-                                    save_path=DEFAULT_PATH + 'saved_models/gnca_model.pth',
+                                    save_path=DEFAULT_PATH + f'saved_models/gnca_model_horizon_{horizon}.pth',
                                     val_loader=batches.get_val_loader()
                                     )
     
@@ -124,7 +123,7 @@ if __name__ == "__main__":
     plot_training_loss(
         training_losses,
         validation_losses,
-        save_path=DEFAULT_PATH + 'results/gnca_training_loss.png',
+        save_path=DEFAULT_PATH + f'results/gnca_training_loss_horizon_{horizon}.png',
         show=False
     )
 
@@ -132,10 +131,50 @@ if __name__ == "__main__":
                     batches.get_test_loader(), 
                     temp_dim=temporal_emb_dim,
                     device=DEVICE,
-                    save_predictions_path=DEFAULT_PATH + 'results/gnca_test_results.pth',
+                    save_predictions_path=DEFAULT_PATH + f'results/gnca_test_results_horizon_{horizon}.pth',
                     scaler=data.value_embedding.embedder
                     )
     
-    print(results)
+    print("Testing completed.")
 
-print("Testing completed.")
+    metrics = results.get('metrics', {})
+    mape = metrics.get('mape', float('nan'))
+    smape = metrics.get('smape', float('nan'))
+    mae = metrics.get('mae', float('nan'))
+    rmse = metrics.get('rmse', float('nan'))
+    nrmse = metrics.get('nrmse', float('nan'))
+    epochs_to_stop = len(training_losses)
+    if epochs_to_stop > 0:
+        est_50 = (elapsed_time / epochs_to_stop) * 50
+    else:
+        est_50 = float('nan')
+
+    return mape, smape, mae, rmse, nrmse, epochs_to_stop, elapsed_time, est_50
+
+if __name__ == "__main__":
+    horizons = [3, 6, 9, 12]
+    all_results = []
+    
+    experiment_name = "wspatial"
+    
+    for h in horizons:
+        print(f"\n{'='*40}\nRunning simulation for horizon: {h}\n{'='*40}")
+        mape, smape, mae, rmse, nrmse, epochs_to_stop, time_sec, est_50 = simulation(h)
+        
+        all_results.append({
+            'Horizon': h,
+            'MAPE': mape,
+            'SMAPE': smape,
+            'MAE': mae,
+            'RSME': rmse,
+            'NRMSE': nrmse,
+            'epochs_to_stop': epochs_to_stop,
+            'time [seconds]': time_sec,
+            'Estimativa Padronizada (50 epocas)': est_50
+        })
+        
+    
+    df_results = pd.DataFrame(all_results)1
+    csv_path = DEFAULT_PATH + f'results/{experiment_name}_results.csv'
+    df_results.to_csv(csv_path, index=False)
+    print(f"\nAll simulations completed. Results saved to {csv_path}")
