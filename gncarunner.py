@@ -155,7 +155,7 @@ if __name__ == "__main__":
     horizons = [3, 6, 9, 12]
     all_results = []
     
-    experiment_name = "wtemporal"
+    experiment_name = "wnt"
     
     for h in horizons:
         print(f"\n{'='*40}\nRunning simulation for horizon: {h}\n{'='*40}")
