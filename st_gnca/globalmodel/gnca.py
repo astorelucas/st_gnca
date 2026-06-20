@@ -29,12 +29,12 @@ class GraphCellularAutomata(nn.Module):
 
     self._set_gat_device(self.device)
 
-    self.spatial_emb = SpatialEmbedding(
-        graph=self.graph,
-        laplacian_components=self.laplacian_components,
-        device=self.gat_device,
-        dtype=self.dtype
-    )
+    # self.spatial_emb = SpatialEmbedding(
+    #     graph=self.graph,
+    #     laplacian_components=self.laplacian_components,
+    #     device=self.gat_device,
+    #     dtype=self.dtype
+    # )
 
     self.Linear_in = nn.Linear(1, self.laplacian_components).to(dtype=self.dtype, device=self.device)
 
@@ -138,12 +138,12 @@ class GraphCellularAutomata(nn.Module):
     xt_filtered = X_batch[:, :, self.temp_dim:]  
     x_linear = self.Linear_in(xt_filtered.unsqueeze(-1))
 
-    spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
-    self.scaler.fit(spatial_embedder)
-    spatial_embedder = self.scaler.forward(spatial_embedder)
-    spatial_embedder = spatial_embedder.unsqueeze(0).repeat(xt_filtered.size(0), 1, 1)
+    # spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
+    # self.scaler.fit(spatial_embedder)
+    # spatial_embedder = self.scaler.forward(spatial_embedder)
+    # spatial_embedder = spatial_embedder.unsqueeze(0).repeat(xt_filtered.size(0), 1, 1)
 
-    encoder = x_linear + spatial_embedder.unsqueeze(1)
+    encoder = x_linear 
 
     x_time = X_batch[:, :, 0:self.temp_dim]  
     for sensor in sorted(self.graph.nodes):
@@ -156,61 +156,61 @@ class GraphCellularAutomata(nn.Module):
     return stacked_outputs
 
 
-  def call_model_modules(self, X_batch, selected_nodes, gnca_models, **kwargs):
+#   def call_model_modules(self, X_batch, selected_nodes, gnca_models, **kwargs):
      
-    outputs = []
+#     outputs = []
 
-    model_0 = gnca_models[0]
+#     model_0 = gnca_models[0]
 
-    model_1 = gnca_models[1]
+#     model_1 = gnca_models[1]
 
-    X_batch = X_batch.to(self.device)
-    self.cell_model.X_batch_graph = X_batch
+#     X_batch = X_batch.to(self.device)
+#     self.cell_model.X_batch_graph = X_batch
 
-    self.cell_model.train(mode=(kwargs.get('mode', 'train') == 'train'))
+#     self.cell_model.train(mode=(kwargs.get('mode', 'train') == 'train'))
 
-    xt_filtered = X_batch[:, :, self.temp_dim:]  
+#     xt_filtered = X_batch[:, :, self.temp_dim:]  
 
-    for sensor in sorted(self.graph.nodes):
-        # print(f"Current sensor: {sensor}")
-        if sensor not in selected_nodes:
-            # print(f"Processing sensor: {sensor} with model_0")
-            x_linear = model_0.Linear_in(xt_filtered.unsqueeze(-1)) 
+#     for sensor in sorted(self.graph.nodes):
+#         # print(f"Current sensor: {sensor}")
+#         if sensor not in selected_nodes:
+#             # print(f"Processing sensor: {sensor} with model_0")
+#             x_linear = model_0.Linear_in(xt_filtered.unsqueeze(-1)) 
 
-            spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
-            self.scaler.fit(spatial_embedder)
-            spatial_embedder = self.scaler.forward(spatial_embedder)
-            spatial_embedder = spatial_embedder.unsqueeze(0).repeat(xt_filtered.size(0), 1, 1)
+#             spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
+#             self.scaler.fit(spatial_embedder)
+#             spatial_embedder = self.scaler.forward(spatial_embedder)
+#             spatial_embedder = spatial_embedder.unsqueeze(0).repeat(xt_filtered.size(0), 1, 1)
 
-            encoder = x_linear + spatial_embedder.unsqueeze(1)
+#             encoder = x_linear + spatial_embedder.unsqueeze(1)
 
-            x_time = X_batch[:, :, 0:self.temp_dim]  
+#             x_time = X_batch[:, :, 0:self.temp_dim]  
 
-            gat_embedder, subset_nodes = model_0._subgat_spatial_embedder(encoder, sensor)
-            y_pred = model_0.cell_model(sensor, gat_embedder, x_time, subset_nodes)
-            outputs.append(y_pred)
-        else:
-            x_linear = model_1.Linear_in(xt_filtered.unsqueeze(-1)) 
+#             gat_embedder, subset_nodes = model_0._subgat_spatial_embedder(encoder, sensor)
+#             y_pred = model_0.cell_model(sensor, gat_embedder, x_time, subset_nodes)
+#             outputs.append(y_pred)
+#         else:
+#             x_linear = model_1.Linear_in(xt_filtered.unsqueeze(-1)) 
 
-            spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
-            self.scaler.fit(spatial_embedder)
-            spatial_embedder = self.scaler.forward(spatial_embedder)
-            spatial_embedder = spatial_embedder.unsqueeze(0).repeat(xt_filtered.size(0), 1, 1)
+#             spatial_embedder = self.spatial_emb.all().to(self.device, dtype=self.dtype)
+#             self.scaler.fit(spatial_embedder)
+#             spatial_embedder = self.scaler.forward(spatial_embedder)
+#             spatial_embedder = spatial_embedder.unsqueeze(0).repeat(xt_filtered.size(0), 1, 1)
 
-            encoder = x_linear + spatial_embedder.unsqueeze(1)
+#             encoder = x_linear + spatial_embedder.unsqueeze(1)
 
-            x_time = X_batch[:, :, 0:self.temp_dim]  
+#             x_time = X_batch[:, :, 0:self.temp_dim]  
 
-            gat_embedder, subset_nodes = model_1._subgat_spatial_embedder(encoder, sensor)
-            y_pred = model_1.cell_model(sensor, gat_embedder, x_time, subset_nodes)
-            outputs.append(y_pred)
+#             gat_embedder, subset_nodes = model_1._subgat_spatial_embedder(encoder, sensor)
+#             y_pred = model_1.cell_model(sensor, gat_embedder, x_time, subset_nodes)
+#             outputs.append(y_pred)
 
-    # print(f"shape of outputs list: {len(outputs)}")
-    stacked_outputs = torch.stack(outputs, dim=1)
+#     # print(f"shape of outputs list: {len(outputs)}")
+#     stacked_outputs = torch.stack(outputs, dim=1)
 
-    # print(f"shape of stacked_outputs: {stacked_outputs.shape}")
+#     # print(f"shape of stacked_outputs: {stacked_outputs.shape}")
 
-    return stacked_outputs
+#     return stacked_outputs
            
   def to(self, device):
     self.device = device
