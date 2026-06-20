@@ -70,7 +70,7 @@ def simulation(horizon):
 
     temporal_emb_dim = 12
     value_emb_dim = 1
-    feature_dim = temporal_emb_dim + ((2*(hidden_dim)*gat_heads))
+    feature_dim = temporal_emb_dim + hidden_dim*gat_heads
     # print(f"Feature Embedding Dim: {feature_dim}") # 4 (temporal_dim) + (hidden_dim+1)*max_degree = 329
 
     layers = 1
